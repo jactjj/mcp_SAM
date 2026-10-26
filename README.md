@@ -48,7 +48,7 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 | Documents, notifications | `list_documents`, `get_document`, `list_notifications` | `create_document`, `update_document`, `update_notification` |
 | Commentaires | `list_client_comments`, `list_lead_comments` | `add_client_comment`, `add_lead_comment`, `update_client_comment`, `update_lead_comment` |
 | Produits d'un client | `list_client_products` | `add_client_product`, `update_client_product` |
-| Suppression (toutes les fiches) | — | `delete_record` (toujours aperçu + confirmation, même en mode `direct`) |
+| Suppression (toutes les fiches) | — | `delete_record` |
 | Schéma | `get_crm_schema` | — |
 
 Paramètres communs des listes : `search`, `filters` (`[{field, op, value}]` avec `op` = `eq`, `not`, `gte`, `lte`, `like`, `null`), `fields` (projection), `limit` (1-50, défaut 20), `offset`.
@@ -67,7 +67,7 @@ Volontairement absents : envoi d'email (`/send-email`, format non vérifié), cr
 | Plusieurs comptes | Le `sub` du jeton MCP est l'id du compte ; `EnvCredentialsProvider` (`src/sam/credentials.ts`) le relie aux identifiants SAM. Une session SAM, un cache et des droits par compte. Un jeton de confirmation d'un compte est refusé pour un autre. Retirer un compte de la configuration invalide ses jetons. Mots de passe de connecteur uniques et différents des mots de passe SAM (vérifié au démarrage). |
 | Données limitées | 50 résultats max, textes tronqués (300 car. en liste, 2000 en détail), clés sensibles retirées (`password`, `token`, `secret`, `api_key`, `hash`…), réponse plafonnée à 40 000 caractères. |
 | Permissions CRM respectées | Chaque appel porte le JWT du compte SAM : rôle SAM et règles côté CRM s'appliquent. Les 403 sont remontés clairement. |
-| Suppression contrôlée | Un seul outil, `delete_record` : il affiche la fiche, puis exige une confirmation liée à cette fiche précise, à usage unique, même en mode `direct`. Absent en mode `disabled`. |
+| Suppression | Un seul outil, `delete_record`, qui relit la fiche avant de la supprimer (une fiche inexistante n'est jamais supprimée). Immédiate en mode `direct` ; aperçu + confirmation en mode `confirm` ; absente en mode `disabled`. |
 | Contrôle humain avant modification | Mode `confirm` (défaut) : 1er appel = aperçu sans écriture (avec valeurs actuelles pour une modification) + `confirmation_token` signé, lié aux paramètres exacts, valable 10 min, à usage unique. Annotations MCP `readOnlyHint` / `destructiveHint` pour que Claude.ai demande l'approbation. Voir [Connecter Claude.ai](#connecter-claudeai) pour régler l'approbation manuelle. |
 | Email désactivé | `/send-email` n'est pas implémenté tant que son format et sa validation ne sont pas vérifiés. |
 | Logs sans secrets | Logger JSON avec masquage des clés sensibles, des JWT, des en-têtes Bearer et des valeurs de secrets configurées. Les chaînes de recherche (données personnelles) ne sont pas journalisées. |
@@ -134,7 +134,7 @@ Ensuite :
 
 1. Dans `wrangler.toml` > `[vars]`, décommenter `MCP_PUBLIC_URL` avec l'URL obtenue, puis `npm run deploy`.
 2. Vérifier : `MCP_URL=https://sam-mcp.<sous-domaine>.workers.dev npm run e2e` (lecture seule, utilise les `STATIC_TOKEN` du `.env`).
-3. `SAM_WRITE_MODE` vaut `confirm` dans `wrangler.toml` : Claude peut créer et modifier, après un aperçu et une confirmation explicite. Mettre `disabled` et redéployer pour repasser en lecture seule.
+3. `SAM_WRITE_MODE` vaut `direct` dans `wrangler.toml` (choix du propriétaire, pour la rapidité) : créations, modifications et suppressions sont immédiates. `confirm` rétablit l'aperçu + confirmation ; `disabled` repasse en lecture seule. Redéployer après changement.
 4. Recommandé : règle de limitation de débit Cloudflare (WAF) sur `POST /authorize` et `POST /token`.
 
 Révoquer tous les accès : changer `MCP_AUTH_SECRET` dans `.env`, puis `npm run secrets:push` — tous les jetons OAuth, codes et confirmations deviennent invalides. Révoquer une seule personne : `npx wrangler secret delete SAM_ACCOUNT_<N>_…` pour chacune de ses variables ; ses jetons sont alors refusés.

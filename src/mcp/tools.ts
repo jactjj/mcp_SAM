@@ -262,14 +262,21 @@ function registerDeleteTool(server: McpServer, ctx: ToolContext): void {
       title: "Supprimer une fiche",
       description:
         "Supprime une fiche SAM : client, prospect (leads), tâche (taches), rendez-vous (rdv), commercial, distributeur, produit, document, " +
-        "produit client, commentaire ou notification. TOUJOURS EN DEUX TEMPS, quel que soit le mode : (1) appeler sans confirmation_token " +
-        "pour afficher la fiche qui sera supprimée, rien n'est supprimé ; (2) montrer la fiche à l'utilisateur et ne rappeler avec le " +
-        "confirmation_token qu'après son accord explicite pour CETTE suppression. Ne jamais supprimer plusieurs fiches sans accord pour chacune.",
-      inputSchema: { entity: z.enum(SAM_ENTITIES).describe("Type de fiche"), id: recordId, confirmation_token: confirmationToken },
+        "produit client, commentaire ou notification. Vérifier l'identifiant (search_/get_) avant de supprimer." +
+        (ctx.writeMode === "confirm"
+          ? " EN DEUX TEMPS : (1) appeler sans confirmation_token pour afficher la fiche, rien n'est supprimé ; (2) rappeler avec le " +
+            "confirmation_token seulement après l'accord explicite de l'utilisateur pour CETTE suppression."
+          : " La suppression est immédiate."),
+      inputSchema: {
+        entity: z.enum(SAM_ENTITIES).describe("Type de fiche"),
+        id: recordId,
+        ...(ctx.writeMode === "confirm" ? { confirmation_token: confirmationToken } : {}),
+      },
       annotations: DELETE_ANNOTATIONS,
     },
-    async ({ entity, id, confirmation_token }) =>
+    async (args) =>
       run(ctx, "delete_record", async () => {
+        const { entity, id, confirmation_token } = args as { entity: SamEntity; id: string; confirmation_token?: string };
         const sam = await ctx.sam();
         let current: Record<string, unknown> | undefined;
         let readWarning: string | undefined;
@@ -280,7 +287,7 @@ function registerDeleteTool(server: McpServer, ctx: ToolContext): void {
           if (!(err instanceof SamApiError)) throw err;
           readWarning = `La fiche n'a pas pu être relue avant suppression (${err.message}).`;
         }
-        const gate = await confirmationGate(ctx, sam.accountId, "delete_record", { entity, id }, confirmation_token, true);
+        const gate = await confirmationGate(ctx, sam.accountId, "delete_record", { entity, id }, confirmation_token, false);
         if (gate.preview) {
           ctx.logger.info("tool.delete.preview", { entity });
           return jsonResult({

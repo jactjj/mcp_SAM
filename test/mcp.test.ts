@@ -395,11 +395,22 @@ describe("suppression (delete_record)", () => {
     expect(sam.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
   });
 
-  it("exige la confirmation même en mode direct", async () => {
+  it("supprime immédiatement en mode direct (sans jeton)", async () => {
     const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
     client = await connectClient(appFetch);
-    const preview = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "leads", id: "l-1" } }));
-    expect(preview.status).toBe("confirmation_requise");
+    const tool = (await client.listTools()).tools.find((t) => t.name === "delete_record");
+    expect(tool?.inputSchema.properties).not.toHaveProperty("confirmation_token");
+    const done = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "leads", id: "l-1" } }));
+    expect(done.status).toBe("supprimé");
+    expect(sam.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+    expect(sam.data.get("leads")?.some((r) => r.id === "l-1")).toBe(false);
+  });
+
+  it("en mode direct, une fiche inexistante n'est pas supprimée", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    const res = await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "inconnu" } });
+    expect(res.isError).toBe(true);
     expect(sam.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 

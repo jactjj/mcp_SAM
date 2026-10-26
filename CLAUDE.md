@@ -76,7 +76,7 @@ npm run secret:generate  # génère une valeur aléatoire pour un secret
 - Valider toutes les entrées avec Zod (bornes, regex champ/id) puis contre le schéma SAM.
 - Ne jamais inventer de champ SAM ni coder en dur un nom de champ métier ; se fonder sur `/crm-api/schema` (le mock est fictif).
 - Ne jamais journaliser de secret, de jeton, de corps de requête ni de terme de recherche ; passer par `logger`.
-- Suppression : uniquement via `delete_record`, toujours confirmée (même en mode `direct`). Pas d'envoi d'email ni d'outil HTTP générique sans décision explicite de l'utilisateur.
+- Suppression : uniquement via `delete_record` (suit `SAM_WRITE_MODE` ; relit toujours la fiche avant). Pas d'envoi d'email ni d'outil HTTP générique sans décision explicite de l'utilisateur.
 - Garder des descriptions d'outils claires, en français, avec annotations `readOnlyHint` / `destructiveHint` exactes.
 - Ajouter ou adapter les tests à chaque évolution (`test/`), y compris le test « liste exacte des outils ».
 - Aucune écriture réelle dans SAM (et aucun déploiement) sans autorisation explicite de l'utilisateur.
@@ -92,7 +92,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 ## F. État du projet (2026-10-26)
 
 Testé :
-- 104 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- 105 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
 - **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
@@ -103,7 +103,7 @@ Constat sur l'API SAM réelle :
 - Les 2 comptes voient les mêmes volumes (rôle SAM complet pour chacun).
 
 Non fait / à faire :
-- **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=confirm`, 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 41 outils (24 d'écriture/suppression) ; 6 échecs = bug SAM commentaires/notifications.
+- **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=direct` (demandé par le propriétaire le 2026-10-26 : pas de confirmation), 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 41 outils (24 d'écriture/suppression) ; 6 échecs = bug SAM commentaires/notifications.
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
 - Envoi d'email (`/send-email`) non implémenté volontairement.
 - Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. `delete_record` validé sur la vraie API (suppression de la tâche de test, rejeu et jeton détourné refusés) ; les autres nouveaux outils sont testés en aperçu seulement. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
