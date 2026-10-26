@@ -1,0 +1,40 @@
+# Alternative hosting on Render (Node). Primary target is Cloudflare Workers (wrangler.toml).
+services:
+  - type: web
+    name: sam-mcp
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: SAM_WRITE_MODE
+        value: confirm
+      - key: SAM_API_BASE_URL
+        value: https://eicajdaswdgfwgmaxene.supabase.co/functions/v1
+      - key: SAM_ACCOUNT_1_LABEL
+        sync: false
+      - key: SAM_ACCOUNT_1_EMAIL
+        sync: false
+      - key: SAM_ACCOUNT_1_PASSWORD
+        sync: false
+      - key: SAM_ACCOUNT_1_CONNECTOR_PASSWORD
+        sync: false
+      - key: SAM_ACCOUNT_1_STATIC_TOKEN
+        sync: false
+      - key: SAM_ACCOUNT_2_LABEL
+        sync: false
+      - key: SAM_ACCOUNT_2_EMAIL
+        sync: false
+      - key: SAM_ACCOUNT_2_PASSWORD
+        sync: false
+      - key: SAM_ACCOUNT_2_CONNECTOR_PASSWORD
+        sync: false
+      - key: SAM_ACCOUNT_2_STATIC_TOKEN
+        sync: false
+      - key: MCP_AUTH_SECRET
+        sync: false
+      - key: MCP_PUBLIC_URL
+        sync: false

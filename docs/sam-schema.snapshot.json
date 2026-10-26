@@ -1,0 +1,17 @@
+{
+  "entities": [
+    "clients",
+    "leads",
+    "taches",
+    "rdv",
+    "commerciaux",
+    "distributeurs",
+    "products",
+    "documents",
+    "client-products",
+    "client-comments",
+    "lead-comments",
+    "notifications"
+  ],
+  "description": "CRM API - Use GET/POST/PATCH/DELETE on each entity"
+}

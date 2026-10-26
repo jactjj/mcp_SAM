@@ -1,0 +1,14 @@
+# Secrets locaux pour `npm run dev` (wrangler dev). Copier vers .dev.vars (ignoré par git).
+# Mêmes variables que .env.example. Avec SAM_MOCK=true, chaque compte reçoit un utilisateur SAM simulé.
+SAM_MOCK=true
+MCP_AUTH_SECRET=replace-with-output-of-npm-run-secret-generate
+SAM_ACCOUNT_1_LABEL=Compte 1
+SAM_ACCOUNT_1_EMAIL=
+SAM_ACCOUNT_1_PASSWORD=
+SAM_ACCOUNT_1_CONNECTOR_PASSWORD=choose-a-long-passphrase-1
+SAM_ACCOUNT_1_STATIC_TOKEN=
+SAM_ACCOUNT_2_LABEL=Compte 2
+SAM_ACCOUNT_2_EMAIL=
+SAM_ACCOUNT_2_PASSWORD=
+SAM_ACCOUNT_2_CONNECTOR_PASSWORD=choose-a-long-passphrase-2
+SAM_ACCOUNT_2_STATIC_TOKEN=

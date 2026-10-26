@@ -1,0 +1,46 @@
+{
+  "name": "sam-mcp-connector",
+  "version": "0.1.0",
+  "description": "Connecteur MCP distant entre Claude.ai et le CRM SAM",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:node": "tsx watch src/node.ts",
+    "dev:mock": "SAM_MOCK=true tsx watch src/node.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/node.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test",
+    "schema:fetch": "tsx scripts/fetch-schema.ts",
+    "secret:generate": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
+    "deploy": "npm run check && wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "smoke": "tsx scripts/smoke.ts",
+    "env:check": "tsx scripts/check-env.ts",
+    "e2e": "tsx scripts/e2e-readonly.ts",
+    "secrets:push": "tsx scripts/push-secrets.ts"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@hono/node-server": "^2.1.5",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "hono": "^4.13.14",
+    "jose": "^6.2.13",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.153.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}
