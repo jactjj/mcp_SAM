@@ -42,7 +42,9 @@ async function check(label: string, ok: boolean, detail = "") {
 
 async function run() {
   const anon = await fetch(`${base}/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-  console.log(`Serveur ${base}`);
+  const info = (await (await fetch(`${base}/`)).json()) as { write_mode?: string };
+  const writeMode = info.write_mode ?? "inconnu";
+  console.log(`Serveur ${base} (mode d'écriture : ${writeMode})`);
   await check("accès sans jeton refusé", anon.status === 401, `HTTP ${anon.status}`);
   const fake = await fetch(`${base}/mcp`, { method: "POST", headers: { Authorization: "Bearer faux-jeton" }, body: "{}" });
   await check("faux jeton refusé", fake.status === 401, `HTTP ${fake.status}`);
@@ -60,8 +62,9 @@ async function run() {
     await check("compte annoncé à Claude", client.getInstructions()?.includes(acc.label) ?? false);
     const tools = (await client.listTools()).tools;
     const writeTools = tools.filter((t) => WRITE_PREFIXES.some((p) => t.name.startsWith(p)));
-    console.log(`  ${tools.length} outils exposés (${writeTools.length} d'écriture, mode ${config.writeMode})`);
-    if (config.writeMode === "disabled") await check("aucun outil d'écriture en lecture seule", writeTools.length === 0);
+    console.log(`  ${tools.length} outils exposés (${writeTools.length} d'écriture, mode ${writeMode})`);
+    if (writeMode === "disabled") await check("aucun outil d'écriture en lecture seule", writeTools.length === 0);
+    else await check("les 10 outils d'écriture sont exposés", writeTools.length === 10);
 
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args });

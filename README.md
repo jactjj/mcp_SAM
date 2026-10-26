@@ -143,7 +143,7 @@ Logs en direct : `npx wrangler tail`.
 ## Connecter Claude.ai
 
 1. Claude.ai → **Paramètres → Connecteurs → Ajouter un connecteur personnalisé** (sur un plan Team/Enterprise, un propriétaire l'ajoute d'abord dans les paramètres de l'organisation).
-2. Nom : `SAM CRM`. URL : `https://sam-mcp.<sous-domaine>.workers.dev/mcp`. Laisser les champs OAuth avancés vides (enregistrement dynamique).
+2. Nom : `SAM CRM`. URL : `https://sam-mcp.sam-crm.workers.dev/mcp` (instance actuelle). Laisser les champs OAuth avancés vides (enregistrement dynamique).
 3. Chaque personne, depuis son propre compte Claude.ai, clique sur **Connecter** : la page « Autoriser l'accès au CRM SAM » s'ouvre. Elle saisit **son** mot de passe de connecteur (`SAM_ACCOUNT_<N>_CONNECTOR_PASSWORD`), puis **Autoriser**. Claude utilise ensuite son compte SAM, et seulement le sien.
 4. Dans les réglages du connecteur, régler les outils d'écriture (`create_*`, `update_*`, `add_*_comment`) sur **demander l'approbation à chaque fois**.
 5. Activer le connecteur dans une conversation (menu outils) et essayer : « Trouve le client Dupont et résume ses derniers commentaires ».

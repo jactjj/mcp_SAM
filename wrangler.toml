@@ -18,5 +18,5 @@ SAM_API_BASE_URL = "https://eicajdaswdgfwgmaxene.supabase.co/functions/v1"
 SAM_WRITE_MODE = "confirm"
 LOG_LEVEL = "info"
 # Optional: set once the final URL is known (custom domain), otherwise derived from the request.
-# MCP_PUBLIC_URL = "https://sam-mcp.<subdomain>.workers.dev"
+MCP_PUBLIC_URL = "https://sam-mcp.sam-crm.workers.dev"
 # OAUTH_ALLOWED_REDIRECT_HOSTS = "claude.ai,claude.com,localhost,127.0.0.1"
