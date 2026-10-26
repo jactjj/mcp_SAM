@@ -122,12 +122,12 @@ Prérequis : un compte Cloudflare (gratuit) et le `.env` rempli (`npm run env:ch
 
 ```bash
 npx wrangler login        # ouvre le navigateur, autoriser Wrangler
-npm run secrets:push      # envoie les secrets du .env à Cloudflare (MCP_AUTH_SECRET, SAM_ACCOUNT_<N>_*)
 npm run deploy            # typecheck + tests + wrangler deploy → affiche l'URL https://sam-mcp.<sous-domaine>.workers.dev
+npm run secrets:push      # envoie les secrets du .env à Cloudflare (MCP_AUTH_SECRET, SAM_ACCOUNT_<N>_*), actifs immédiatement
 ```
 
 > Le premier `wrangler deploy` peut demander de choisir un sous-domaine `workers.dev` : en choisir un (ex. le nom de l'entreprise).
-> Si `secrets:push` indique que le Worker n'existe pas encore, lancer d'abord `npm run deploy`, puis `npm run secrets:push`.
+> Entre le déploiement et l'envoi des secrets, le serveur répond « server_misconfigured » : c'est normal.
 
 Ensuite :
 
