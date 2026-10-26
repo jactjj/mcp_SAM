@@ -93,6 +93,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 
 Testé :
 - 87 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
 Constat sur l'API SAM réelle :
@@ -102,7 +103,8 @@ Constat sur l'API SAM réelle :
 - Les 2 comptes voient les mêmes volumes (rôle SAM complet pour chacun).
 
 Non fait / à faire :
-- **Écritures non testées sur la vraie API** (`SAM_WRITE_MODE=disabled`) : nécessite l'accord de l'utilisateur et des données de test ; rien ne peut être supprimé via le connecteur.
+- Supprimer à la main dans SAM les 2 fiches de test créées le 2026-10-26 : prospect `cf4f9c69-baa6-40d6-b5a4-57d7368237e5` (« TEST MCP ») et tâche `e46a1c84-6b67-43e8-bcae-63d36bb1ea22`.
+- Passer `SAM_WRITE_MODE` à `confirm` dans `wrangler.toml` quand l'utilisateur veut activer les écritures en production.
 - **Non déployé** (Cloudflare : `wrangler login`, `npm run secrets:push`, `npm run deploy`). `wrangler.toml` est en `SAM_WRITE_MODE=disabled` jusqu'à validation des écritures.
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
 - Envoi d'email (`/send-email`) non implémenté volontairement.

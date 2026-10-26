@@ -186,6 +186,7 @@ Résultats sur la vraie API (26/10/2026, 2 comptes) :
 
 - Toutes les lectures fonctionnent (clients, prospects, tâches, rendez-vous, commerciaux, distributeurs, documents, produits, statistiques, recherche, filtres, fiches).
 - `GET /crm-api/schema` ne renvoie que les noms d'entités : le connecteur **observe** donc les champs sur les enregistrements réels (`get_crm_schema` indique la source). Une entité sans enregistrement n'a pas de champ connu, et les écritures y sont refusées.
+- Écritures validées le 26/10/2026 sur la vraie API, en mode `confirm` : création et modification d'un prospect et d'une tâche, refus des confirmations modifiées, rejouées ou venant d'un autre compte, refus de `deleted_at` et des champs inventés.
 - **Bug de l'API SAM** : `client-comments`, `lead-comments` et `notifications` répondent `400 column <table>.deleted_at does not exist`. À corriger côté SAM ; les outils de commentaires et de notifications fonctionneront ensuite sans changement du connecteur.
 
 ## Alternative : Render / Node
