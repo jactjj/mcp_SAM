@@ -103,11 +103,10 @@ Constat sur l'API SAM réelle :
 - Les 2 comptes voient les mêmes volumes (rôle SAM complet pour chacun).
 
 Non fait / à faire :
-- Supprimer à la main dans SAM les 2 fiches de test créées le 2026-10-26 : prospect `cf4f9c69-baa6-40d6-b5a4-57d7368237e5` (« TEST MCP ») et tâche `e46a1c84-6b67-43e8-bcae-63d36bb1ea22`.
-- **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=confirm`, 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 42 OK, 6 échecs = bug SAM commentaires/notifications.
+- **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=confirm`, 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 41 outils (24 d'écriture/suppression) ; 6 échecs = bug SAM commentaires/notifications.
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
 - Envoi d'email (`/send-email`) non implémenté volontairement.
-- Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. Non testés en écriture réelle. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
+- Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. `delete_record` validé sur la vraie API (suppression de la tâche de test, rejeu et jeton détourné refusés) ; les autres nouveaux outils sont testés en aperçu seulement. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
 - **Comptes utilisateurs SAM : impossible pour l'instant**, aucun endpoint documenté (les 12 entités n'incluent pas les utilisateurs). Nécessite un endpoint fourni par le développeur SAM ; ne pas en inventer.
 
 Limitations : champs obligatoires inconnus (SAM les vérifie à la création) ; types déduits des valeurs observées ; usage unique des codes/confirmations et verrouillage du mot de passe en mémoire par instance ; refresh tokens révocables globalement ou en retirant le compte ; mode sans état (pas d'élicitation MCP).
