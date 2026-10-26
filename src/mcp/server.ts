@@ -21,7 +21,9 @@ function instructions(ctx: ToolContext): string {
     "Utilise get_crm_schema pour connaître les noms exacts des champs avant de filtrer, créer ou modifier. N'invente jamais de champ.",
     writes,
     "Suppression : uniquement avec delete_record.",
-    "L'envoi d'emails par SAM n'est pas disponible via ce connecteur : utiliser Gmail.",
+    ctx.sendEmail && ctx.writeMode !== "disabled"
+      ? "Emails : send_email envoie depuis l'expéditeur du CRM SAM (HTML) ; pour un brouillon à relire, utiliser Gmail."
+      : "L'envoi d'emails par SAM n'est pas activé sur ce connecteur : utiliser Gmail.",
     "Pour les emails, l'agenda et les documents, combine ce connecteur avec les connecteurs Google Workspace (Gmail, Google Calendar, Drive) : " +
       "par exemple, lis la fiche client ici puis rédige un brouillon Gmail, ou crée le rendez-vous dans SAM puis dans Google Calendar.",
     "Les résultats sont paginés et les textes longs tronqués : affine avec search, filters, fields, limit et offset.",

@@ -55,7 +55,9 @@ Paramètres communs des listes : `search`, `filters` (`[{field, op, value}]` ave
 
 Les écritures prennent `data` : un objet `{champ: valeur}` dont **chaque nom de champ est vérifié contre les champs réels de SAM**. `id`, `created_at`, `updated_at`, `deleted_at` et `deleted_by` sont toujours refusés. Les champs sont ceux décrits par l'API ou, à défaut, observés sur les enregistrements réels, et les champs inconnus sont alors refusés. Si aucun champ n'est connu (entité vide ou illisible), l'écriture est permise avec un avertissement dans l'aperçu, et SAM valide lui-même les noms de champs.
 
-Volontairement absents : envoi d'email (`/send-email`, format non vérifié), création de comptes utilisateurs (aucun endpoint documenté), requête HTTP générique.
+Email : `send_email` envoie via l'expéditeur du CRM (`POST /send-email`, champs `to`, `subject`, `html`, vérifiés le 26/10/2026), un destinataire à la fois. Il est désactivé tant que `SAM_SEND_EMAIL` ne vaut pas `true`. L'endpoint n'accepte pas de nom de modèle : les modèles du CRM doivent être fournis en HTML.
+
+Volontairement absents : création de comptes utilisateurs (aucun endpoint documenté), requête HTTP générique.
 
 ## Sécurité
 
@@ -69,7 +71,7 @@ Volontairement absents : envoi d'email (`/send-email`, format non vérifié), cr
 | Permissions CRM respectées | Chaque appel porte le JWT du compte SAM : rôle SAM et règles côté CRM s'appliquent. Les 403 sont remontés clairement. |
 | Suppression | Un seul outil, `delete_record`, qui relit la fiche avant de la supprimer (une fiche inexistante n'est jamais supprimée). Immédiate en mode `direct` ; aperçu + confirmation en mode `confirm` ; absente en mode `disabled`. |
 | Contrôle humain avant modification | Mode `confirm` (défaut) : 1er appel = aperçu sans écriture (avec valeurs actuelles pour une modification) + `confirmation_token` signé, lié aux paramètres exacts, valable 10 min, à usage unique. Annotations MCP `readOnlyHint` / `destructiveHint` pour que Claude.ai demande l'approbation. Voir [Connecter Claude.ai](#connecter-claudeai) pour régler l'approbation manuelle. |
-| Email désactivé | `/send-email` n'est pas implémenté tant que son format et sa validation ne sont pas vérifiés. |
+| Email sous contrôle | `send_email` est absent tant que `SAM_SEND_EMAIL=true` n'est pas défini : un seul destinataire, adresse validée, destinataire et contenu jamais journalisés. |
 | Logs sans secrets | Logger JSON avec masquage des clés sensibles, des JWT, des en-têtes Bearer et des valeurs de secrets configurées. Les chaînes de recherche (données personnelles) ne sont pas journalisées. |
 | Page de connexion | CSP stricte, `frame-ancestors 'none'`, jeton de requête signé (anti-CSRF), verrouillage après 5 échecs en 15 min (par instance). |
 | Redirections OAuth | Seuls les hôtes de `OAUTH_ALLOWED_REDIRECT_HOSTS` (défaut : `claude.ai`, `claude.com`, `localhost`) sont acceptés, en HTTPS sauf localhost. |
@@ -106,7 +108,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 104 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 111 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict
@@ -168,6 +170,7 @@ Voir [.env.example](.env.example) pour la liste commentée.
 | `SAM_ACCOUNT_<N>_LABEL` | non | Nom du compte (logs, instructions de Claude) |
 | `SAM_MOCK` | non | `true` = API simulée (dev/tests uniquement) |
 | `SAM_WRITE_MODE` | non | `disabled`, `confirm` (défaut), `direct` |
+| `SAM_SEND_EMAIL` | non | `true` active l'outil `send_email` (défaut `false`) |
 | `SAM_REQUEST_TIMEOUT_MS` | non | Délai par appel SAM (défaut 15000) |
 | `MCP_AUTH_SECRET` | oui | Clé de signature ≥ 32 caractères — **secret** |
 | `MCP_PUBLIC_URL` | recommandé | URL publique (émetteur OAuth) |

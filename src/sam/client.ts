@@ -28,8 +28,8 @@ export interface SamClientOptions {
 /**
  * Typed client for the SAM REST API.
  *
- * Only documented endpoints are implemented. No email sending in this version
- * (format of /send-email not verified yet).
+ * Only documented endpoints are implemented. /send-email is used only by the
+ * send_email tool, which is off unless SAM_SEND_EMAIL=true.
  * Every call carries the SAM JWT of the configured account, so CRM-side permissions
  * (SAM role, row-level rules) apply unchanged.
  */
@@ -64,6 +64,11 @@ export class SamClient {
   /** Deletes one record. Only reachable through the delete_record tool, always after explicit confirmation. */
   async delete(entity: SamEntity, id: string): Promise<unknown> {
     return this.request("DELETE", `/crm-api/${entityPath(entity)}/${recordPath(id)}`);
+  }
+
+  /** POST /send-email — fields required by SAM (checked 2026-10-26): to, subject, html. */
+  async sendEmail(email: { to: string; subject: string; html: string }): Promise<unknown> {
+    return this.request("POST", "/send-email", email);
   }
 
   async stats(): Promise<unknown> {

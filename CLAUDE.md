@@ -83,7 +83,7 @@ npm run secret:generate  # génère une valeur aléatoire pour un secret
 
 ## E. Configuration
 
-Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM_MOCK`, `SAM_WRITE_MODE` (`disabled|confirm|direct`, défaut `confirm`), `SAM_REQUEST_TIMEOUT_MS`, `MCP_AUTH_SECRET`* (≥ 32), `MCP_PUBLIC_URL`, `OAUTH_ALLOWED_REDIRECT_HOSTS`, `LOG_LEVEL`, `PORT`/`HOST` (Node). Par compte N : `SAM_ACCOUNT_<N>_LABEL`, `_EMAIL`*, `_PASSWORD`*, `_CONNECTOR_PASSWORD`* (≥ 12, unique, ≠ mot de passe SAM), `_STATIC_TOKEN`* (optionnel, ≥ 32). Format 1 compte encore accepté : `SAM_EMAIL`, `SAM_PASSWORD`, `MCP_OWNER_PASSWORD`, `MCP_STATIC_TOKEN` (ne pas mélanger). * = secret.
+Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM_MOCK`, `SAM_WRITE_MODE` (`disabled|confirm|direct`, défaut `confirm`), `SAM_SEND_EMAIL` (`true` active `send_email`), `SAM_REQUEST_TIMEOUT_MS`, `MCP_AUTH_SECRET`* (≥ 32), `MCP_PUBLIC_URL`, `OAUTH_ALLOWED_REDIRECT_HOSTS`, `LOG_LEVEL`, `PORT`/`HOST` (Node). Par compte N : `SAM_ACCOUNT_<N>_LABEL`, `_EMAIL`*, `_PASSWORD`*, `_CONNECTOR_PASSWORD`* (≥ 12, unique, ≠ mot de passe SAM), `_STATIC_TOKEN`* (optionnel, ≥ 32). Format 1 compte encore accepté : `SAM_EMAIL`, `SAM_PASSWORD`, `MCP_OWNER_PASSWORD`, `MCP_STATIC_TOKEN` (ne pas mélanger). * = secret.
 
 - Local : `.env` (Node) ou `.dev.vars` (wrangler), tous deux ignorés par git. Production : `npx wrangler secret put <NOM>` ; variables non secrètes dans `wrangler.toml` `[vars]`.
 - Auth SAM : `POST /crm-api-auth` {email, password} → `access_token` (1 h). Seul le rôle SAM a accès.
@@ -92,7 +92,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 ## F. État du projet (2026-10-26)
 
 Testé :
-- 105 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- 111 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
 - **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
@@ -105,7 +105,7 @@ Constat sur l'API SAM réelle :
 Non fait / à faire :
 - **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=direct` (demandé par le propriétaire le 2026-10-26 : pas de confirmation), 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 41 outils (24 d'écriture/suppression) ; 6 échecs = bug SAM commentaires/notifications.
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
-- Envoi d'email (`/send-email`) non implémenté volontairement.
+- Email : `POST /send-email` attend `to`, `subject`, `html` (découvert le 2026-10-26 par une requête vide, réponse 400 « Missing required fields: to, subject, html »). Outil `send_email` implémenté, **désactivé** (`SAM_SEND_EMAIL=false`) jusqu'à un envoi de test réel validé par l'utilisateur. Pas de nom de modèle côté API : les modèles du CRM sont à fournir en HTML.
 - Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. `delete_record` validé sur la vraie API (suppression de la tâche de test, rejeu et jeton détourné refusés) ; les autres nouveaux outils sont testés en aperçu seulement. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
 - **Comptes utilisateurs SAM : impossible pour l'instant**, aucun endpoint documenté (les 12 entités n'incluent pas les utilisateurs). Nécessite un endpoint fourni par le développeur SAM ; ne pas en inventer.
 

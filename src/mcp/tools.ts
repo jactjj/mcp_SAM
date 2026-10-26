@@ -23,6 +23,8 @@ export interface ToolContext {
   accountLabel: string;
   sam: () => Promise<SamSession>;
   writeMode: WriteMode;
+  /** send_email is registered only when true (SAM_SEND_EMAIL) and writes are enabled. */
+  sendEmail: boolean;
   signer: TokenSigner;
   usedConfirmations: UsedTokenRegistry;
   logger: Logger;
@@ -316,6 +318,49 @@ function registerDeleteTool(server: McpServer, ctx: ToolContext): void {
   );
 }
 
+function registerSendEmailTool(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "send_email",
+    {
+      title: "Envoyer un email via SAM",
+      description:
+        "Envoie un email depuis l'expéditeur du CRM SAM (endpoint /send-email) à UN destinataire. Le corps est en HTML simple " +
+        "(<p>, <br>, <strong>, <a href>, <ul><li>). Vérifier l'adresse dans la fiche SAM avant l'envoi ; un email envoyé ne peut pas être annulé. " +
+        "Pour un brouillon à relire, utiliser plutôt Gmail. Après l'envoi à un prospect, on peut mettre à jour sa fiche (ex. mail_envoye) avec update_lead." +
+        confirmationText(ctx.writeMode),
+      inputSchema: {
+        to: z.string().trim().email("Adresse email invalide").max(254).describe("Adresse du destinataire (une seule)"),
+        subject: z.string().trim().min(1).max(200).describe("Objet de l'email"),
+        html: z.string().min(1).max(50_000).describe("Corps de l'email en HTML"),
+        ...(ctx.writeMode === "confirm" ? { confirmation_token: confirmationToken } : {}),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) =>
+      run(ctx, "send_email", async () => {
+        const a = args as { to: string; subject: string; html: string; confirmation_token?: string };
+        const sam = await ctx.sam();
+        const gate = await confirmationGate(ctx, sam.accountId, "send_email", { to: a.to, subject: a.subject, html: a.html }, a.confirmation_token, false);
+        if (gate.preview) {
+          return jsonResult({
+            status: "confirmation_requise",
+            action: "Envoyer un email via SAM",
+            destinataire: a.to,
+            objet: a.subject,
+            apercu_texte: a.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1500),
+            confirmation_token: gate.token,
+            expire_dans_secondes: CONFIRMATION_TTL_SECONDS,
+            instructions: "Rien n'a été envoyé. Montre l'email à l'utilisateur ; s'il confirme, rappelle send_email avec les mêmes paramètres et ce confirmation_token.",
+          });
+        }
+        await sam.client.sendEmail({ to: a.to, subject: a.subject, html: a.html });
+        // Recipient and content are personal data: never logged.
+        ctx.logger.info("tool.email.sent");
+        return jsonResult({ status: "envoyé", destinataire: a.to, objet: a.subject });
+      }),
+  );
+}
+
 function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDef): void {
   const shape = {
     ...(def.kind === "update" ? { id: recordId } : {}),
@@ -598,5 +643,6 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
   if (ctx.writeMode !== "disabled") {
     for (const def of WRITE_TOOLS) registerWriteTool(server, ctx, def);
     registerDeleteTool(server, ctx);
+    if (ctx.sendEmail) registerSendEmailTool(server, ctx);
   }
 }

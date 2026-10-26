@@ -78,6 +78,8 @@ export interface MockSam {
   /** Overrides the next response for a path prefix (simulates SAM failures). */
   failNext(pathPrefix: string, status: number, body?: unknown): void;
   issuedTokens: string[];
+  /** Emails accepted by the simulated /send-email. */
+  sentEmails: { to: string; subject: string; html: string }[];
 }
 
 function randomToken(): string {
@@ -113,6 +115,7 @@ export function createMockSam(opts: MockSamOptions = {}): MockSam {
     logins: 0,
     data,
     issuedTokens: [],
+    sentEmails: [],
     expireAllTokens: () => tokens.clear(),
     failNext: (prefix, status, body) => failures.push({ prefix, status, body }),
     fetch: async (input, init) => {
@@ -161,6 +164,15 @@ export function createMockSam(opts: MockSamOptions = {}): MockSam {
         });
       }
 
+      if (path === "/send-email" && method === "POST") {
+        if (!authorized) return json(401, { error: "Non autorisé" });
+        const b = (body ?? {}) as Rec;
+        const missing = ["to", "subject", "html"].filter((k) => !b[k]);
+        // Same message as the live API (observed 2026-10-26).
+        if (missing.length) return json(400, { error: `Missing required fields: ${missing.join(", ")}` });
+        mock.sentEmails.push({ to: String(b.to), subject: String(b.subject), html: String(b.html) });
+        return json(200, { success: true });
+      }
       if (!path.startsWith("/crm-api")) return json(404, { error: "Not found" });
       if (!token) return json(401, { error: "Non autorisé - Token manquant" });
       if (!authorized) return json(401, { error: "Token invalide ou expiré" });

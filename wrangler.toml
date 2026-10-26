@@ -17,6 +17,8 @@ SAM_API_BASE_URL = "https://eicajdaswdgfwgmaxene.supabase.co/functions/v1"
 # "direct" (requested by the owner on 2026-10-26 for speed): creates, updates and deletes are applied
 # immediately, without preview/confirmation token. Set "confirm" to bring back the two-step confirmation.
 SAM_WRITE_MODE = "direct"
+# send_email tool (POST /send-email: to, subject, html). Keep "false" until a real test send has been validated.
+SAM_SEND_EMAIL = "false"
 LOG_LEVEL = "info"
 # Optional: set once the final URL is known (custom domain), otherwise derived from the request.
 MCP_PUBLIC_URL = "https://sam-mcp.sam-crm.workers.dev"

@@ -29,6 +29,8 @@ export interface Config {
     baseUrl: string;
     mock: boolean;
     timeoutMs: number;
+    /** Enables the send_email tool (POST /send-email). Off by default. */
+    sendEmail: boolean;
   };
   accounts: AccountConfig[];
   writeMode: WriteMode;
@@ -156,7 +158,7 @@ export function loadConfig(env: Record<string, unknown>): Config {
 
   const hosts = clean(e.OAUTH_ALLOWED_REDIRECT_HOSTS);
   return {
-    sam: { baseUrl, mock, timeoutMs },
+    sam: { baseUrl, mock, timeoutMs, sendEmail: truthy(e.SAM_SEND_EMAIL) },
     accounts,
     writeMode: writeModeRaw as WriteMode,
     auth: {

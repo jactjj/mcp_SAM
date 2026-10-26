@@ -94,6 +94,7 @@ export function createApp(opts: AppOptions) {
       mcp_endpoint: `${publicBaseUrl(config, c)}/mcp`,
       write_mode: config.writeMode,
       accounts: config.accounts.length,
+      send_email: config.sam.sendEmail && config.writeMode !== "disabled",
       ...(config.sam.mock ? { mock: true } : {}),
     }),
   );
@@ -121,6 +122,7 @@ export function createApp(opts: AppOptions) {
       accountLabel: accountLabels.get(auth.principal) ?? auth.principal,
       sam: () => samFor(auth.principal),
       writeMode: config.writeMode,
+      sendEmail: config.sam.sendEmail,
       signer,
       usedConfirmations,
       logger,
