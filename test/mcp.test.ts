@@ -34,6 +34,18 @@ const EXPECTED_WRITE_TOOLS = [
   "add_lead_comment",
   "create_commercial",
   "update_commercial",
+  "create_distributeur",
+  "update_distributeur",
+  "create_product",
+  "update_product",
+  "create_document",
+  "update_document",
+  "add_client_product",
+  "update_client_product",
+  "update_client_comment",
+  "update_lead_comment",
+  "update_notification",
+  "delete_record",
 ];
 
 let client: Client | undefined;
@@ -50,13 +62,15 @@ describe("connexion et découverte", () => {
     expect(client.getInstructions()).toContain("get_crm_schema");
   });
 
-  it("expose exactement les outils métier attendus, sans suppression, email ni HTTP générique", async () => {
+  it("expose exactement les outils métier attendus : une seule suppression, ni email ni HTTP générique", async () => {
     const { appFetch } = setup();
     client = await connectClient(appFetch);
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([...EXPECTED_READ_TOOLS, ...EXPECTED_WRITE_TOOLS].sort());
-    expect(names.some((n) => /delete|remove|email|mail|http|request|fetch/i.test(n))).toBe(false);
+    expect(names.filter((n) => /delete|remove/i.test(n))).toEqual(["delete_record"]);
+    expect(names.some((n) => /email|mail|http|request|fetch/i.test(n))).toBe(false);
+    expect(tools.find((t) => t.name === "delete_record")?.annotations?.destructiveHint).toBe(true);
     for (const t of tools) {
       expect(t.description && t.description.length).toBeGreaterThan(20);
       if (EXPECTED_READ_TOOLS.includes(t.name)) expect(t.annotations?.readOnlyHint).toBe(true);
@@ -343,13 +357,177 @@ describe("gestion des erreurs SAM", () => {
     expect(textOf(res)).toContain("rôle SAM");
   });
 
-  it("refuse les écritures sur une entité sans champ connu (schéma non décrit, aucun enregistrement)", async () => {
+  it("autorise l'écriture sur une entité sans champ connu, avec avertissement (SAM valide les champs)", async () => {
     const { appFetch, sam } = setup({ mock: { schemaFormat: "names" } });
     client = await connectClient(appFetch);
-    const res = await client.callTool({ name: "create_task", arguments: { data: { titre: "X" } } });
-    expect(res.isError).toBe(true);
-    expect(textOf(res)).toContain("Aucun champ connu");
+    const preview = parseResult(await client.callTool({ name: "create_task", arguments: { data: { titre: "X" } } }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(preview.avertissement).toContain("pas été vérifiés");
     expect(sam.calls.some((c) => c.method === "POST" && c.path.startsWith("/crm-api/"))).toBe(false);
+    const bad = await client.callTool({ name: "create_task", arguments: { data: { titre: "X", deleted_at: "2026-01-01" } } });
+    expect(bad.isError).toBe(true);
+  });
+
+  it("seul delete_record confirmé appelle DELETE ; jamais d'envoi d'email", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    for (const name of ["search_clients", "list_tasks", "list_notifications", "list_documents"]) {
+      await client.callTool({ name, arguments: {} });
+    }
+    await client.callTool({ name: "update_task", arguments: { id: "x", data: { statut: "fait" } } });
+    expect(sam.calls.some((c) => c.method === "DELETE" || c.path.includes("send-email"))).toBe(false);
+  });
+});
+
+describe("suppression (delete_record)", () => {
+  it("affiche la fiche, ne supprime qu'après confirmation, une seule fois", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const preview = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "c-2" } }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(preview.fiche_a_supprimer.nom).toBe("Martin");
+    expect(sam.calls.some((c) => c.method === "DELETE")).toBe(false);
+    const done = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "c-2", confirmation_token: preview.confirmation_token } }));
+    expect(done.status).toBe("supprimé");
+    expect(sam.data.get("clients")?.some((r) => r.id === "c-2")).toBe(false);
+    const replay = await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "c-2", confirmation_token: preview.confirmation_token } });
+    expect(replay.isError).toBe(true);
+    expect(sam.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+  });
+
+  it("exige la confirmation même en mode direct", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    const preview = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "leads", id: "l-1" } }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(sam.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("refuse une confirmation donnée pour une autre fiche", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const preview = parseResult(await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "c-1" } }));
+    const other = await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "c-2", confirmation_token: preview.confirmation_token } });
+    expect(other.isError).toBe(true);
+    expect(sam.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("signale une fiche inexistante sans rien supprimer", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const res = await client.callTool({ name: "delete_record", arguments: { entity: "clients", id: "inconnu" } });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain("introuvable");
+    expect(sam.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("n'existe pas en mode lecture seule", async () => {
+    const { appFetch } = setup({ env: { SAM_WRITE_MODE: "disabled" } });
+    client = await connectClient(appFetch);
+    expect((await client.listTools()).tools.some((t) => t.name === "delete_record")).toBe(false);
+  });
+});
+
+describe("schéma observé (format réel de l'API SAM)", () => {
+  it("apprend les champs à partir des enregistrements réels", async () => {
+    const { appFetch, sam } = setup({ mock: { schemaFormat: "names" } });
+    client = await connectClient(appFetch);
+    const schema = parseResult(await client.callTool({ name: "get_crm_schema", arguments: { entity: "clients" } }));
+    const clients = schema.entities[0];
+    expect(clients.source).toContain("observé");
+    expect(clients.fields.map((f: any) => f.name)).toEqual(expect.arrayContaining(["nom", "ville", "statut"]));
+    expect(clients.fields.find((f: any) => f.name === "id").read_only).toBe(true);
+    expect(sam.calls.some((c) => c.method !== "GET" && c.path !== "/crm-api-auth")).toBe(false);
+  });
+
+  it("valide les écritures contre les champs observés", async () => {
+    const { appFetch, sam } = setup({ mock: { schemaFormat: "names" } });
+    client = await connectClient(appFetch);
+    const bad = await client.callTool({ name: "update_client", arguments: { id: "c-1", data: { champ_invente: "x" } } });
+    expect(textOf(bad)).toContain("champ_invente");
+    const ok = parseResult(await client.callTool({ name: "update_client", arguments: { id: "c-1", data: { ville: "Nice" } } }));
+    expect(ok.status).toBe("confirmation_requise");
+    expect(sam.calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
+  it("indique les entités sans champ connu", async () => {
+    const { appFetch } = setup({ mock: { schemaFormat: "names" } });
+    client = await connectClient(appFetch);
+    const schema = parseResult(await client.callTool({ name: "get_crm_schema", arguments: {} }));
+    expect(schema.entities).toHaveLength(12);
+    expect(schema.entities.find((e: any) => e.entity === "products").note).toContain("Aucun champ connu");
+  });
+});
+
+describe("commerciaux", () => {
+  it("crée une fiche commercial après confirmation", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const args = { data: { nom: "Durand", prenom: "Léa", email: "lea@example.com", is_active: true } };
+    const preview = parseResult(await client.callTool({ name: "create_commercial", arguments: args }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(sam.data.get("commerciaux")).toHaveLength(1);
+    const done = parseResult(await client.callTool({ name: "create_commercial", arguments: { ...args, confirmation_token: preview.confirmation_token } }));
+    expect(done.status).toBe("créé");
+    expect(sam.data.get("commerciaux")).toHaveLength(2);
+  });
+
+  it("refuse de toucher au compte de connexion (user_id)", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    for (const [name, args] of [
+      ["create_commercial", { data: { nom: "X", user_id: "u-999" } }],
+      ["update_commercial", { id: "u-1", data: { user_id: "u-999" } }],
+    ] as const) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError).toBe(true);
+      expect(textOf(res)).toContain("compte de connexion");
+    }
+    expect(sam.calls.some((c) => c.method === "POST" || c.method === "PATCH")).toBe(false);
+  });
+});
+
+describe("écritures en mode direct", () => {
+  it("crée une tâche immédiatement", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    const tools = (await client.listTools()).tools;
+    expect(tools.find((t) => t.name === "create_task")?.inputSchema.properties).not.toHaveProperty("confirmation_token");
+    const res = parseResult(
+      await client.callTool({ name: "create_task", arguments: { data: { titre: "Relancer Dupont", echeance: "2026-11-02", client_id: "c-1" } } }),
+    );
+    expect(res.status).toBe("créé");
+    expect(sam.data.get("taches")).toHaveLength(1);
+  });
+});
+
+describe("gestion des erreurs SAM", () => {
+  it("signale une erreur serveur SAM sans planter", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    sam.failNext("/crm-api/leads", 500, { error: "boom" });
+    const res = await client.callTool({ name: "search_leads", arguments: {} });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain("Erreur du serveur SAM");
+  });
+
+  it("signale un compte sans rôle SAM", async () => {
+    const { appFetch } = setup({ mock: { hasSamRole: false } });
+    client = await connectClient(appFetch);
+    const res = await client.callTool({ name: "search_clients", arguments: {} });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain("rôle SAM");
+  });
+
+  it("autorise l'écriture sur une entité sans champ connu, avec avertissement (SAM valide les champs)", async () => {
+    const { appFetch, sam } = setup({ mock: { schemaFormat: "names" } });
+    client = await connectClient(appFetch);
+    const preview = parseResult(await client.callTool({ name: "create_task", arguments: { data: { titre: "X" } } }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(preview.avertissement).toContain("pas été vérifiés");
+    expect(sam.calls.some((c) => c.method === "POST" && c.path.startsWith("/crm-api/"))).toBe(false);
+    const bad = await client.callTool({ name: "create_task", arguments: { data: { titre: "X", deleted_at: "2026-01-01" } } });
+    expect(bad.isError).toBe(true);
   });
 
   it("n'appelle jamais DELETE ni l'envoi d'email", async () => {

@@ -8,7 +8,7 @@ Mémoire technique du projet. Détails d'installation, de sécurité et de dépl
 - **Flux** : Claude.ai → (HTTPS, OAuth 2.1, Streamable HTTP) → ce serveur `/mcp` → (HTTPS, JWT SAM) → API SAM `https://eicajdaswdgfwgmaxene.supabase.co/functions/v1`.
 - **Deux authentifications indépendantes** : Claude.ai ↔ serveur MCP (OAuth ; le mot de passe de connecteur saisi désigne le compte) ; serveur ↔ SAM (email/mot de passe SAM du compte, côté serveur uniquement).
 - **Plusieurs comptes SAM** (2 en usage, 10 max) : `SAM_ACCOUNT_<N>_*`. Le `sub` des jetons MCP = id du compte ; une session SAM, un cache et des droits par compte.
-- **Périmètre v1** : lecture + création/modification avec contrôle humain, pour chaque compte déclaré. Pas de suppression, pas d'envoi d'email, pas d'outil HTTP générique.
+- **Périmètre** : lecture, création, modification et suppression (`delete_record`) de toutes les entités SAM, avec contrôle humain, pour chaque compte déclaré. Pas d'envoi d'email ni de création de compte utilisateur (endpoints non vérifiés / inexistants), pas d'outil HTTP générique.
 
 ## B. Architecture
 
@@ -76,7 +76,7 @@ npm run secret:generate  # génère une valeur aléatoire pour un secret
 - Valider toutes les entrées avec Zod (bornes, regex champ/id) puis contre le schéma SAM.
 - Ne jamais inventer de champ SAM ni coder en dur un nom de champ métier ; se fonder sur `/crm-api/schema` (le mock est fictif).
 - Ne jamais journaliser de secret, de jeton, de corps de requête ni de terme de recherche ; passer par `logger`.
-- Ne pas ajouter de suppression, d'envoi d'email ni d'outil HTTP générique sans décision explicite de l'utilisateur.
+- Suppression : uniquement via `delete_record`, toujours confirmée (même en mode `direct`). Pas d'envoi d'email ni d'outil HTTP générique sans décision explicite de l'utilisateur.
 - Garder des descriptions d'outils claires, en français, avec annotations `readOnlyHint` / `destructiveHint` exactes.
 - Ajouter ou adapter les tests à chaque évolution (`test/`), y compris le test « liste exacte des outils ».
 - Aucune écriture réelle dans SAM (et aucun déploiement) sans autorisation explicite de l'utilisateur.
@@ -92,7 +92,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 ## F. État du projet (2026-10-26)
 
 Testé :
-- 89 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- 104 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
 - **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
@@ -107,7 +107,7 @@ Non fait / à faire :
 - **Déployé** le 2026-10-26 sur Cloudflare Workers : `https://sam-mcp.sam-crm.workers.dev` (endpoint MCP `/mcp`), `SAM_WRITE_MODE=confirm`, 11 secrets (`npm run secrets:push`). `npm run e2e` contre la prod : 42 OK, 6 échecs = bug SAM commentaires/notifications.
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
 - Envoi d'email (`/send-email`) non implémenté volontairement.
-- Commerciaux : `create_commercial` / `update_commercial` ajoutés (2026-10-26), `user_id` bloqué via `blockedFields`. Non testés en écriture réelle.
+- Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. Non testés en écriture réelle. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
 - **Comptes utilisateurs SAM : impossible pour l'instant**, aucun endpoint documenté (les 12 entités n'incluent pas les utilisateurs). Nécessite un endpoint fourni par le développeur SAM ; ne pas en inventer.
 
 Limitations : champs obligatoires inconnus (SAM les vérifie à la création) ; types déduits des valeurs observées ; usage unique des codes/confirmations et verrouillage du mot de passe en mémoire par instance ; refresh tokens révocables globalement ou en retirant le compte ; mode sans état (pas d'élicitation MCP).

@@ -244,22 +244,19 @@ export class SchemaRegistry {
     return p;
   }
 
-  private async requireEntity(entity: SamEntity): Promise<EntitySchema> {
-    const es = await this.entity(entity);
-    if (!es) {
-      throw new ValidationError(
-        `Aucun champ connu pour "${entity}" (non décrit par l'API SAM et aucun enregistrement lisible) : opération refusée par précaution. ` +
-          `Utiliser get_crm_schema pour diagnostiquer.`,
-      );
-    }
-    return es;
-  }
-
-  /** Checks a create/update payload: known fields only, not server-managed, plausible types. */
-  async validateWrite(entity: SamEntity, data: Record<string, FieldValue>, mode: "create" | "update"): Promise<void> {
-    const es = await this.requireEntity(entity);
+  /**
+   * Checks a create/update payload: known fields only, not server-managed, plausible types.
+   * Returns false when the entity has no known field (SAM does not describe it and no record
+   * is readable): the write is then allowed, and SAM itself validates the column names.
+   */
+  async validateWrite(entity: SamEntity, data: Record<string, FieldValue>, mode: "create" | "update"): Promise<boolean> {
     const keys = Object.keys(data);
     if (keys.length === 0) throw new ValidationError("Aucun champ fourni");
+    for (const k of keys) {
+      if (SERVER_MANAGED_FIELDS.has(k)) throw new ValidationError(`Le champ "${k}" est géré par SAM et ne peut pas être modifié`);
+    }
+    const es = await this.entity(entity);
+    if (!es) return false;
     const unknown = keys.filter((k) => !es.fields.has(k));
     if (unknown.length > 0) {
       throw new ValidationError(
@@ -282,6 +279,7 @@ export class SchemaRegistry {
         .map((f) => f.name);
       if (missing.length > 0) throw new ValidationError(`Champ(s) obligatoire(s) manquant(s) pour ${entity} : ${missing.join(", ")}`);
     }
+    return true;
   }
 
   /** Filter and projection fields must exist when the schema of the entity is known. */

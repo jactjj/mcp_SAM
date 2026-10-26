@@ -216,6 +216,99 @@ function confirmationText(mode: WriteMode): string {
   );
 }
 
+const UNVERIFIED_FIELDS_WARNING =
+  "Les champs de cette entité ne sont pas connus du connecteur (SAM ne les décrit pas et aucune fiche n'est lisible) : " +
+  "les noms de champs n'ont pas été vérifiés, SAM les validera à l'enregistrement.";
+
+type Gate = { preview: true; token: string } | { preview: false };
+
+/**
+ * Human-confirmation step shared by every write. In "confirm" mode (or when `always` is set,
+ * as for deletions), a call without token returns a preview token; a call with token must carry
+ * exactly the same payload (SHA-256 of canonical JSON), for the same tool and account, once.
+ */
+async function confirmationGate(
+  ctx: ToolContext,
+  accountId: string,
+  tool: string,
+  payload: unknown,
+  token: string | undefined,
+  always: boolean,
+): Promise<Gate> {
+  if (!always && ctx.writeMode !== "confirm") return { preview: false };
+  const digest = await sha256Base64Url(canonicalJson({ tool, account: accountId, payload }));
+  if (!token) {
+    return { preview: true, token: await ctx.signer.sign("confirm", { tool, digest, sub: ctx.principal }, CONFIRMATION_TTL_SECONDS) };
+  }
+  const claims = await ctx.signer.verify<ConfirmClaims & { jti?: string; exp?: number }>("confirm", token);
+  if (!claims || claims.tool !== tool || claims.sub !== ctx.principal) {
+    throw new ValidationError("confirmation_token invalide ou expiré : refaire un aperçu et redemander l'accord de l'utilisateur");
+  }
+  if (claims.digest !== digest) {
+    throw new ValidationError("Les paramètres ne correspondent pas à l'aperçu confirmé : refaire un aperçu et redemander l'accord de l'utilisateur");
+  }
+  if (!claims.jti || !ctx.usedConfirmations.consume(claims.jti, claims.exp ?? 0)) {
+    throw new ValidationError("Ce confirmation_token a déjà été utilisé");
+  }
+  return { preview: false };
+}
+
+const DELETE_ANNOTATIONS: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
+
+function registerDeleteTool(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "delete_record",
+    {
+      title: "Supprimer une fiche",
+      description:
+        "Supprime une fiche SAM : client, prospect (leads), tâche (taches), rendez-vous (rdv), commercial, distributeur, produit, document, " +
+        "produit client, commentaire ou notification. TOUJOURS EN DEUX TEMPS, quel que soit le mode : (1) appeler sans confirmation_token " +
+        "pour afficher la fiche qui sera supprimée, rien n'est supprimé ; (2) montrer la fiche à l'utilisateur et ne rappeler avec le " +
+        "confirmation_token qu'après son accord explicite pour CETTE suppression. Ne jamais supprimer plusieurs fiches sans accord pour chacune.",
+      inputSchema: { entity: z.enum(SAM_ENTITIES).describe("Type de fiche"), id: recordId, confirmation_token: confirmationToken },
+      annotations: DELETE_ANNOTATIONS,
+    },
+    async ({ entity, id, confirmation_token }) =>
+      run(ctx, "delete_record", async () => {
+        const sam = await ctx.sam();
+        let current: Record<string, unknown> | undefined;
+        let readWarning: string | undefined;
+        try {
+          current = sanitizeRecord(await sam.client.get(entity, id), LIST_MAX_STRING);
+        } catch (err) {
+          if (err instanceof SamApiError && err.code === "not_found") throw err;
+          if (!(err instanceof SamApiError)) throw err;
+          readWarning = `La fiche n'a pas pu être relue avant suppression (${err.message}).`;
+        }
+        const gate = await confirmationGate(ctx, sam.accountId, "delete_record", { entity, id }, confirmation_token, true);
+        if (gate.preview) {
+          ctx.logger.info("tool.delete.preview", { entity });
+          return jsonResult({
+            status: "confirmation_requise",
+            action: "SUPPRIMER une fiche",
+            entity,
+            id,
+            ...(current ? { fiche_a_supprimer: current } : {}),
+            ...(readWarning ? { avertissement: readWarning } : {}),
+            confirmation_token: gate.token,
+            expire_dans_secondes: CONFIRMATION_TTL_SECONDS,
+            instructions:
+              "Rien n'a été supprimé. Montre cette fiche à l'utilisateur et demande-lui s'il confirme sa suppression. " +
+              "Seulement s'il répond explicitement oui, rappelle delete_record avec les mêmes entity, id et ce confirmation_token.",
+          });
+        }
+        const response = await sam.client.delete(entity, id);
+        ctx.logger.info("tool.delete.done", { entity });
+        return jsonResult({
+          status: "supprimé",
+          entity,
+          id,
+          ...(response && typeof response === "object" ? { reponse_sam: sanitizeRecord(response as Record<string, unknown>, LIST_MAX_STRING) } : {}),
+        });
+      }),
+  );
+}
+
 function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDef): void {
   const shape = {
     ...(def.kind === "update" ? { id: recordId } : {}),
@@ -228,7 +321,7 @@ function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDe
     def.name,
     {
       title: def.title,
-      description: `${def.description} Les noms de champs doivent exister dans le schéma SAM (get_crm_schema) ; les champs inconnus sont refusés.${confirmationText(ctx.writeMode)}`,
+      description: `${def.description} Utiliser les noms de champs réels de SAM (get_crm_schema) : quand ils sont connus, les champs inconnus sont refusés ; sinon SAM les valide.${confirmationText(ctx.writeMode)}`,
       inputSchema: shape,
       annotations: def.kind === "create" ? CREATE : UPDATE,
     },
@@ -248,14 +341,9 @@ function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDe
           const linkValue = a[def.link.param];
           if (linkValue === undefined) throw new ValidationError(`${def.link.param} est requis`);
           const es = await sam.schema.entity(def.entity);
-          if (!es) {
+          if (es && !es.fields.has(def.link.param)) {
             throw new ValidationError(
-              `Aucun champ connu pour "${def.entity}" (non décrit par l'API SAM et aucun enregistrement lisible) : écriture refusée par précaution.`,
-            );
-          }
-          if (!es.fields.has(def.link.param)) {
-            throw new ValidationError(
-              `Le schéma de ${def.entity} ne contient pas de champ "${def.link.param}" : impossible de rattacher le commentaire sans connaître le champ de liaison réel.`,
+              `Le schéma de ${def.entity} ne contient pas de champ "${def.link.param}" : impossible de rattacher la fiche sans connaître le champ de liaison réel.`,
             );
           }
           if (data[def.link.param] !== undefined && data[def.link.param] !== linkValue) {
@@ -268,49 +356,39 @@ function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDe
           if (def.blockedFields?.names.includes(k)) throw new ValidationError(`Le champ "${k}" ne peut pas être modifié par ce connecteur : ${def.blockedFields.reason}`);
         }
 
-        await sam.schema.validateWrite(def.entity, data, def.kind);
+        const verified = await sam.schema.validateWrite(def.entity, data, def.kind);
 
         // For updates, read the current record: it proves it exists and lets the user compare.
+        // A record SAM cannot re-read (400, e.g. its API bug on comments/notifications) does not block the update.
         let before: Record<string, unknown> | undefined;
+        let readWarning: string | undefined;
         if (def.kind === "update" && a.id) {
-          const current = await sam.client.get(def.entity, a.id);
-          const safe = sanitizeRecord(current, DETAIL_MAX_STRING);
-          before = Object.fromEntries(Object.keys(data).map((k) => [k, k in safe ? safe[k] : null]));
+          try {
+            const safe = sanitizeRecord(await sam.client.get(def.entity, a.id), DETAIL_MAX_STRING);
+            before = Object.fromEntries(Object.keys(data).map((k) => [k, k in safe ? safe[k] : null]));
+          } catch (err) {
+            if (!(err instanceof SamApiError) || err.code !== "bad_request") throw err;
+            readWarning = `Valeurs actuelles illisibles (${err.message}).`;
+          }
         }
 
-        if (ctx.writeMode === "confirm") {
-          const digest = await sha256Base64Url(
-            canonicalJson({ tool: def.name, entity: def.entity, id: a.id ?? null, account: sam.accountId, data }),
-          );
-          if (!a.confirmation_token) {
-            const token = await ctx.signer.sign("confirm", { tool: def.name, digest, sub: ctx.principal }, CONFIRMATION_TTL_SECONDS);
-            ctx.logger.info("tool.write.preview", { tool: def.name, entity: def.entity });
-            return jsonResult({
-              status: "confirmation_requise",
-              action: def.label,
-              entity: def.entity,
-              ...(a.id ? { id: a.id } : {}),
-              ...(before ? { valeurs_actuelles: before } : {}),
-              changements: data,
-              confirmation_token: token,
-              expire_dans_secondes: CONFIRMATION_TTL_SECONDS,
-              instructions:
-                "Aucune donnée n'a été écrite. Présente ces changements à l'utilisateur et demande-lui de confirmer. " +
-                "S'il accepte explicitement, rappelle cet outil avec exactement les mêmes paramètres et ce confirmation_token.",
-            });
-          }
-          const claims = await ctx.signer.verify<ConfirmClaims & { jti?: string; exp?: number }>("confirm", a.confirmation_token);
-          if (!claims || claims.tool !== def.name || claims.sub !== ctx.principal) {
-            throw new ValidationError("confirmation_token invalide ou expiré : refaire un aperçu et redemander l'accord de l'utilisateur");
-          }
-          if (claims.digest !== digest) {
-            throw new ValidationError(
-              "Les paramètres ne correspondent pas à l'aperçu confirmé : refaire un aperçu et redemander l'accord de l'utilisateur",
-            );
-          }
-          if (!claims.jti || !ctx.usedConfirmations.consume(claims.jti, claims.exp ?? 0)) {
-            throw new ValidationError("Ce confirmation_token a déjà été utilisé");
-          }
+        const gate = await confirmationGate(ctx, sam.accountId, def.name, { entity: def.entity, id: a.id ?? null, data }, a.confirmation_token, false);
+        if (gate.preview) {
+          ctx.logger.info("tool.write.preview", { tool: def.name, entity: def.entity });
+          return jsonResult({
+            status: "confirmation_requise",
+            action: def.label,
+            entity: def.entity,
+            ...(a.id ? { id: a.id } : {}),
+            ...(before ? { valeurs_actuelles: before } : {}),
+            changements: data,
+            ...(verified && !readWarning ? {} : { avertissement: [verified ? "" : UNVERIFIED_FIELDS_WARNING, readWarning ?? ""].filter(Boolean).join(" ") }),
+            confirmation_token: gate.token,
+            expire_dans_secondes: CONFIRMATION_TTL_SECONDS,
+            instructions:
+              "Aucune donnée n'a été écrite. Présente ces changements à l'utilisateur et demande-lui de confirmer. " +
+              "S'il accepte explicitement, rappelle cet outil avec exactement les mêmes paramètres et ce confirmation_token.",
+          });
         }
 
         const saved =
@@ -396,6 +474,25 @@ export const WRITE_TOOLS: WriteToolDef[] = [
     description: "Modifie une fiche commercial SAM existante (coordonnées, distributeur, activité). Le champ user_id (compte de connexion) est refusé.",
     blockedFields: { names: ["user_id"], reason: "le lien avec un compte de connexion SAM se gère dans SAM (il donne accès au CRM)" },
   },
+  { name: "create_distributeur", title: "Créer un distributeur", entity: "distributeurs", kind: "create", label: "Créer un distributeur", description: "Crée un distributeur dans SAM." },
+  { name: "update_distributeur", title: "Modifier un distributeur", entity: "distributeurs", kind: "update", label: "Modifier un distributeur", description: "Modifie un distributeur SAM existant." },
+  { name: "create_product", title: "Créer un produit", entity: "products", kind: "create", label: "Créer un produit", description: "Crée un produit dans le catalogue SAM." },
+  { name: "update_product", title: "Modifier un produit", entity: "products", kind: "update", label: "Modifier un produit", description: "Modifie un produit du catalogue SAM." },
+  { name: "create_document", title: "Créer un document", entity: "documents", kind: "create", label: "Créer un document", description: "Crée une fiche document dans SAM (métadonnées : type, statut, client… ; pas d'envoi de fichier)." },
+  { name: "update_document", title: "Modifier un document", entity: "documents", kind: "update", label: "Modifier un document", description: "Modifie une fiche document SAM (statut, remarques…)." },
+  {
+    name: "add_client_product",
+    title: "Associer un produit à un client",
+    entity: "client-products",
+    kind: "create",
+    label: "Associer un produit à un client",
+    description: "Associe un produit à un client SAM (entité `client-products`).",
+    link: { param: "client_id", label: "client" },
+  },
+  { name: "update_client_product", title: "Modifier un produit client", entity: "client-products", kind: "update", label: "Modifier un produit client", description: "Modifie l'association d'un produit à un client." },
+  { name: "update_client_comment", title: "Modifier un commentaire client", entity: "client-comments", kind: "update", label: "Modifier un commentaire client", description: "Modifie un commentaire existant sur un client." },
+  { name: "update_lead_comment", title: "Modifier un commentaire prospect", entity: "lead-comments", kind: "update", label: "Modifier un commentaire prospect", description: "Modifie un commentaire existant sur un prospect." },
+  { name: "update_notification", title: "Modifier une notification", entity: "notifications", kind: "update", label: "Modifier une notification", description: "Modifie une notification SAM (par exemple la marquer comme lue)." },
   {
     name: "add_client_comment",
     title: "Commenter un client",
@@ -493,5 +590,6 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
 
   if (ctx.writeMode !== "disabled") {
     for (const def of WRITE_TOOLS) registerWriteTool(server, ctx, def);
+    registerDeleteTool(server, ctx);
   }
 }

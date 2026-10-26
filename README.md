@@ -42,19 +42,20 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 |---|---|---|
 | Clients | `search_clients`, `get_client` | `create_client`, `update_client` |
 | Prospects | `search_leads`, `get_lead` | `create_lead`, `update_lead` |
-| Commercial | `list_commerciaux`, `list_distributeurs`, `list_products`, `get_crm_stats` | `create_commercial`, `update_commercial` (champ `user_id` refusé : pas de création ni de modification de compte de connexion) |
+| Commercial | `list_commerciaux`, `list_distributeurs`, `list_products`, `get_crm_stats` | `create_commercial`, `update_commercial` (champ `user_id` refusé), `create_distributeur`, `update_distributeur`, `create_product`, `update_product` |
 | Tâches | `list_tasks` | `create_task`, `update_task` |
 | Rendez-vous | `list_appointments` | `create_appointment`, `update_appointment` |
-| Documents, notifications | `list_documents`, `get_document`, `list_notifications` | — |
-| Commentaires | `list_client_comments`, `list_lead_comments` | `add_client_comment`, `add_lead_comment` |
-| Produits d'un client | `list_client_products` | — |
+| Documents, notifications | `list_documents`, `get_document`, `list_notifications` | `create_document`, `update_document`, `update_notification` |
+| Commentaires | `list_client_comments`, `list_lead_comments` | `add_client_comment`, `add_lead_comment`, `update_client_comment`, `update_lead_comment` |
+| Produits d'un client | `list_client_products` | `add_client_product`, `update_client_product` |
+| Suppression (toutes les fiches) | — | `delete_record` (toujours aperçu + confirmation, même en mode `direct`) |
 | Schéma | `get_crm_schema` | — |
 
 Paramètres communs des listes : `search`, `filters` (`[{field, op, value}]` avec `op` = `eq`, `not`, `gte`, `lte`, `like`, `null`), `fields` (projection), `limit` (1-50, défaut 20), `offset`.
 
-Les écritures prennent `data` : un objet `{champ: valeur}` dont **chaque nom de champ est vérifié contre les champs réels de SAM**. Les champs inconnus, `id`, `created_at`, `updated_at`, `deleted_at` et `deleted_by` (suppression logique de SAM) sont refusés. Les champs sont ceux décrits par l'API ou, à défaut, observés sur les enregistrements réels ; si aucun champ n'est connu, les écritures sont refusées.
+Les écritures prennent `data` : un objet `{champ: valeur}` dont **chaque nom de champ est vérifié contre les champs réels de SAM**. `id`, `created_at`, `updated_at`, `deleted_at` et `deleted_by` sont toujours refusés. Les champs sont ceux décrits par l'API ou, à défaut, observés sur les enregistrements réels, et les champs inconnus sont alors refusés. Si aucun champ n'est connu (entité vide ou illisible), l'écriture est permise avec un avertissement dans l'aperçu, et SAM valide lui-même les noms de champs.
 
-Volontairement absents : suppression (`DELETE`), envoi d'email (`/send-email`), requête HTTP générique.
+Volontairement absents : envoi d'email (`/send-email`, format non vérifié), création de comptes utilisateurs (aucun endpoint documenté), requête HTTP générique.
 
 ## Sécurité
 
@@ -66,7 +67,7 @@ Volontairement absents : suppression (`DELETE`), envoi d'email (`/send-email`), 
 | Plusieurs comptes | Le `sub` du jeton MCP est l'id du compte ; `EnvCredentialsProvider` (`src/sam/credentials.ts`) le relie aux identifiants SAM. Une session SAM, un cache et des droits par compte. Un jeton de confirmation d'un compte est refusé pour un autre. Retirer un compte de la configuration invalide ses jetons. Mots de passe de connecteur uniques et différents des mots de passe SAM (vérifié au démarrage). |
 | Données limitées | 50 résultats max, textes tronqués (300 car. en liste, 2000 en détail), clés sensibles retirées (`password`, `token`, `secret`, `api_key`, `hash`…), réponse plafonnée à 40 000 caractères. |
 | Permissions CRM respectées | Chaque appel porte le JWT du compte SAM : rôle SAM et règles côté CRM s'appliquent. Les 403 sont remontés clairement. |
-| Pas de suppression | Aucune méthode `delete` dans le client SAM, aucun outil associé (vérifié par les tests). |
+| Suppression contrôlée | Un seul outil, `delete_record` : il affiche la fiche, puis exige une confirmation liée à cette fiche précise, à usage unique, même en mode `direct`. Absent en mode `disabled`. |
 | Contrôle humain avant modification | Mode `confirm` (défaut) : 1er appel = aperçu sans écriture (avec valeurs actuelles pour une modification) + `confirmation_token` signé, lié aux paramètres exacts, valable 10 min, à usage unique. Annotations MCP `readOnlyHint` / `destructiveHint` pour que Claude.ai demande l'approbation. Voir [Connecter Claude.ai](#connecter-claudeai) pour régler l'approbation manuelle. |
 | Email désactivé | `/send-email` n'est pas implémenté tant que son format et sa validation ne sont pas vérifiés. |
 | Logs sans secrets | Logger JSON avec masquage des clés sensibles, des JWT, des en-têtes Bearer et des valeurs de secrets configurées. Les chaînes de recherche (données personnelles) ne sont pas journalisées. |
@@ -105,7 +106,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 89 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 104 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict

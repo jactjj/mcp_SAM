@@ -28,8 +28,8 @@ export interface SamClientOptions {
 /**
  * Typed client for the SAM REST API.
  *
- * Only the documented, non-destructive endpoints are implemented: there is
- * intentionally no delete method and no email sending in this version.
+ * Only documented endpoints are implemented. No email sending in this version
+ * (format of /send-email not verified yet).
  * Every call carries the SAM JWT of the configured account, so CRM-side permissions
  * (SAM role, row-level rules) apply unchanged.
  */
@@ -61,6 +61,11 @@ export class SamClient {
     return normalizeRecord(body);
   }
 
+  /** Deletes one record. Only reachable through the delete_record tool, always after explicit confirmation. */
+  async delete(entity: SamEntity, id: string): Promise<unknown> {
+    return this.request("DELETE", `/crm-api/${entityPath(entity)}/${recordPath(id)}`);
+  }
+
   async stats(): Promise<unknown> {
     return this.request("GET", "/crm-api/stats");
   }
@@ -73,7 +78,7 @@ export class SamClient {
    * Performs an authenticated call. On 401 the cached JWT is dropped, the server logs in
    * again and retries exactly once; a second 401 is reported as an authentication error.
    */
-  private async request(method: "GET" | "POST" | "PATCH", path: string, payload?: unknown): Promise<unknown> {
+  private async request(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, payload?: unknown): Promise<unknown> {
     const started = Date.now();
     let token = await this.opts.tokens.getToken();
     let res = await this.send(method, path, token, payload);
