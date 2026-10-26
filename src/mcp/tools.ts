@@ -196,6 +196,8 @@ interface WriteToolDef {
   label: string;
   description: string;
   link?: { param: "client_id" | "lead_id"; label: string };
+  /** Real fields that this tool must never write, with the reason shown to Claude. */
+  blockedFields?: { names: string[]; reason: string };
 }
 
 interface ConfirmClaims {
@@ -263,6 +265,7 @@ function registerWriteTool(server: McpServer, ctx: ToolContext, def: WriteToolDe
         }
         for (const k of Object.keys(data)) {
           if (SERVER_MANAGED_FIELDS.has(k)) throw new ValidationError(`Le champ "${k}" est géré par SAM et ne peut pas être fourni`);
+          if (def.blockedFields?.names.includes(k)) throw new ValidationError(`Le champ "${k}" ne peut pas être modifié par ce connecteur : ${def.blockedFields.reason}`);
         }
 
         await sam.schema.validateWrite(def.entity, data, def.kind);
@@ -374,6 +377,25 @@ export const WRITE_TOOLS: WriteToolDef[] = [
   { name: "update_task", title: "Modifier une tâche", entity: "taches", kind: "update", label: "Modifier une tâche", description: "Modifie une tâche SAM existante (par exemple son statut ou son échéance)." },
   { name: "create_appointment", title: "Créer un rendez-vous", entity: "rdv", kind: "create", label: "Créer un rendez-vous", description: "Crée un rendez-vous dans SAM (entité `rdv`). Pour l'ajouter aussi à Google Agenda, utiliser ensuite le connecteur Google Calendar." },
   { name: "update_appointment", title: "Modifier un rendez-vous", entity: "rdv", kind: "update", label: "Modifier un rendez-vous", description: "Modifie un rendez-vous SAM existant." },
+  {
+    name: "create_commercial",
+    title: "Créer un commercial",
+    entity: "commerciaux",
+    kind: "create",
+    label: "Créer un commercial",
+    description:
+      "Crée une fiche commercial dans SAM (entité `commerciaux`). Ne crée PAS de compte de connexion au CRM : le champ user_id est refusé.",
+    blockedFields: { names: ["user_id"], reason: "le lien avec un compte de connexion SAM se gère dans SAM (il donne accès au CRM)" },
+  },
+  {
+    name: "update_commercial",
+    title: "Modifier un commercial",
+    entity: "commerciaux",
+    kind: "update",
+    label: "Modifier un commercial",
+    description: "Modifie une fiche commercial SAM existante (coordonnées, distributeur, activité). Le champ user_id (compte de connexion) est refusé.",
+    blockedFields: { names: ["user_id"], reason: "le lien avec un compte de connexion SAM se gère dans SAM (il donne accès au CRM)" },
+  },
   {
     name: "add_client_comment",
     title: "Commenter un client",

@@ -32,6 +32,8 @@ const EXPECTED_WRITE_TOOLS = [
   "update_appointment",
   "add_client_comment",
   "add_lead_comment",
+  "create_commercial",
+  "update_commercial",
 ];
 
 let client: Client | undefined;
@@ -278,6 +280,34 @@ describe("schéma observé (format réel de l'API SAM)", () => {
     const schema = parseResult(await client.callTool({ name: "get_crm_schema", arguments: {} }));
     expect(schema.entities).toHaveLength(12);
     expect(schema.entities.find((e: any) => e.entity === "products").note).toContain("Aucun champ connu");
+  });
+});
+
+describe("commerciaux", () => {
+  it("crée une fiche commercial après confirmation", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const args = { data: { nom: "Durand", prenom: "Léa", email: "lea@example.com", is_active: true } };
+    const preview = parseResult(await client.callTool({ name: "create_commercial", arguments: args }));
+    expect(preview.status).toBe("confirmation_requise");
+    expect(sam.data.get("commerciaux")).toHaveLength(1);
+    const done = parseResult(await client.callTool({ name: "create_commercial", arguments: { ...args, confirmation_token: preview.confirmation_token } }));
+    expect(done.status).toBe("créé");
+    expect(sam.data.get("commerciaux")).toHaveLength(2);
+  });
+
+  it("refuse de toucher au compte de connexion (user_id)", async () => {
+    const { appFetch, sam } = setup({ env: { SAM_WRITE_MODE: "direct" } });
+    client = await connectClient(appFetch);
+    for (const [name, args] of [
+      ["create_commercial", { data: { nom: "X", user_id: "u-999" } }],
+      ["update_commercial", { id: "u-1", data: { user_id: "u-999" } }],
+    ] as const) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError).toBe(true);
+      expect(textOf(res)).toContain("compte de connexion");
+    }
+    expect(sam.calls.some((c) => c.method === "POST" || c.method === "PATCH")).toBe(false);
   });
 });
 

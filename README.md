@@ -42,7 +42,7 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 |---|---|---|
 | Clients | `search_clients`, `get_client` | `create_client`, `update_client` |
 | Prospects | `search_leads`, `get_lead` | `create_lead`, `update_lead` |
-| Commercial | `list_commerciaux`, `list_distributeurs`, `list_products`, `get_crm_stats` | — |
+| Commercial | `list_commerciaux`, `list_distributeurs`, `list_products`, `get_crm_stats` | `create_commercial`, `update_commercial` (champ `user_id` refusé : pas de création ni de modification de compte de connexion) |
 | Tâches | `list_tasks` | `create_task`, `update_task` |
 | Rendez-vous | `list_appointments` | `create_appointment`, `update_appointment` |
 | Documents, notifications | `list_documents`, `get_document`, `list_notifications` | — |
@@ -105,7 +105,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 87 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 89 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict

@@ -22,7 +22,7 @@ export const MOCK_SCHEMA: Record<string, MockField[]> = {
   clients: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("ville"), f("statut"), f("commercial_id", "uuid")],
   leads: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("source"), f("statut"), f("score", "integer")],
   distributeurs: [...base, f("nom", "text", true), f("ville")],
-  commerciaux: [...base, f("nom", "text", true), f("prenom"), f("email")],
+  commerciaux: [...base, f("nom", "text", true), f("prenom"), f("email"), f("user_id", "uuid"), f("is_active", "boolean")],
   taches: [...base, f("titre", "text", true), f("description"), f("statut"), f("echeance", "date"), f("client_id", "uuid"), f("lead_id", "uuid")],
   rdv: [...base, f("titre", "text", true), f("date_debut", "timestamptz", true), f("date_fin", "timestamptz"), f("lieu"), f("client_id", "uuid")],
   products: [...base, f("nom", "text", true), f("prix", "numeric"), f("reference")],
