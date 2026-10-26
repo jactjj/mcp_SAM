@@ -14,8 +14,8 @@ enabled = true
 [vars]
 SAM_API_BASE_URL = "https://eicajdaswdgfwgmaxene.supabase.co/functions/v1"
 # disabled | confirm | direct  (confirm = preview + explicit confirmation before any write)
-# Read-only until writes have been validated on the real SAM API, then switch to "confirm".
-SAM_WRITE_MODE = "disabled"
+# Writes validated on the real SAM API on 2026-10-26: Claude can create/update after explicit confirmation.
+SAM_WRITE_MODE = "confirm"
 LOG_LEVEL = "info"
 # Optional: set once the final URL is known (custom domain), otherwise derived from the request.
 # MCP_PUBLIC_URL = "https://sam-mcp.<subdomain>.workers.dev"

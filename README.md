@@ -133,7 +133,7 @@ Ensuite :
 
 1. Dans `wrangler.toml` > `[vars]`, décommenter `MCP_PUBLIC_URL` avec l'URL obtenue, puis `npm run deploy`.
 2. Vérifier : `MCP_URL=https://sam-mcp.<sous-domaine>.workers.dev npm run e2e` (lecture seule, utilise les `STATIC_TOKEN` du `.env`).
-3. `SAM_WRITE_MODE` vaut `disabled` (lecture seule) dans `wrangler.toml`. Après validation des écritures, passer à `confirm` et redéployer.
+3. `SAM_WRITE_MODE` vaut `confirm` dans `wrangler.toml` : Claude peut créer et modifier, après un aperçu et une confirmation explicite. Mettre `disabled` et redéployer pour repasser en lecture seule.
 4. Recommandé : règle de limitation de débit Cloudflare (WAF) sur `POST /authorize` et `POST /token`.
 
 Révoquer tous les accès : changer `MCP_AUTH_SECRET` dans `.env`, puis `npm run secrets:push` — tous les jetons OAuth, codes et confirmations deviennent invalides. Révoquer une seule personne : `npx wrangler secret delete SAM_ACCOUNT_<N>_…` pour chacune de ses variables ; ses jetons sont alors refusés.
@@ -180,7 +180,7 @@ Format « un seul compte » toujours accepté (sans `SAM_ACCOUNT_<N>_*`) : `SAM_
 1. `npm run env:check` : vérifie le `.env` sans afficher les secrets.
 2. `npm run schema:fetch` (lecture seule) : montre les champs connus par entité.
 3. `npm start`, puis dans un autre terminal `npm run e2e` : appelle tous les outils de **lecture** pour chaque compte ayant un `STATIC_TOKEN`, et affiche uniquement des statuts et des volumes.
-4. Commencer en production avec `SAM_WRITE_MODE=disabled`, puis passer à `confirm` après avoir validé les écritures sur des données de test.
+4. Les écritures ont été validées sur la vraie API : la production est configurée en `SAM_WRITE_MODE=confirm`.
 
 Résultats sur la vraie API (26/10/2026, 2 comptes) :
 
