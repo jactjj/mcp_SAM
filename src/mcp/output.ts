@@ -12,8 +12,11 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}… [tronqué, ${s.length} caractères]` : s;
 }
 
+/** Links (file URLs with their signature) are useless once cut: they keep up to this length. */
+const MAX_URL_CHARS = 4000;
+
 function sanitizeValue(v: unknown, maxString: number, depth: number): unknown {
-  if (typeof v === "string") return truncate(v, maxString);
+  if (typeof v === "string") return /^https?:\/\/\S+$/.test(v) ? truncate(v, MAX_URL_CHARS) : truncate(v, maxString);
   if (Array.isArray(v)) {
     if (depth >= 3) return `[${v.length} élément(s)]`;
     const items = v.slice(0, 20).map((x) => sanitizeValue(x, maxString, depth + 1));

@@ -82,6 +82,12 @@ describe("limitation des données renvoyées", () => {
     expect(out.nested).toEqual({ ok: 1 });
   });
 
+  it("ne coupe pas les liens (fichiers signés)", () => {
+    const url = `https://x.supabase.co/storage/v1/object/sign/documents/c/f.pdf?token=${"a".repeat(600)}`;
+    expect(sanitizeRecord({ file_url: url, note: "y".repeat(600) }, 300)).toMatchObject({ file_url: url });
+    expect((sanitizeRecord({ note: "y".repeat(600) }, 300).note as string).length).toBeLessThan(400);
+  });
+
   it("plafonne la taille totale d'une réponse", () => {
     const items = Array.from({ length: 200 }, (_, i) => ({ id: i, text: "y".repeat(500) }));
     const res = jsonResult({ items });
