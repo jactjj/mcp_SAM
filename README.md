@@ -49,6 +49,7 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 | Commentaires | `list_client_comments`, `list_lead_comments` | `add_client_comment`, `add_lead_comment`, `update_client_comment`, `update_lead_comment` |
 | Produits d'un client | `list_client_products` | `add_client_product`, `update_client_product` |
 | Suppression (toutes les fiches) | — | `delete_record` |
+| Actions groupées | — | `batch_write` : jusqu'à 50 créations/modifications/suppressions en un appel (un seul clic d'approbation), toutes vérifiées avant la première écriture, puis exécutées dans l'ordre sans retour arrière ; `stop_on_error` pour s'arrêter à la première erreur |
 | Schéma | `get_crm_schema` | — |
 | Emails (avec Gmail) | `prepare_email` : fiche, commercial, tâches, rendez-vous + recherches Gmail à lancer | `send_email` (si `SAM_SEND_EMAIL=true`) |
 
@@ -109,7 +110,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 114 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 120 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict

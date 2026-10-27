@@ -652,6 +652,146 @@ function registerPrepareEmailTool(server: McpServer, ctx: ToolContext): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Batch writes: several operations, one tool call (one approval in Claude.ai)
+// ---------------------------------------------------------------------------
+
+export const BATCH_MAX_OPERATIONS = 50;
+
+const batchOperation = z.object({
+  action: z.enum(["create", "update", "delete"]).describe("create, update ou delete"),
+  entity: z.enum(SAM_ENTITIES).describe("Type de fiche"),
+  id: recordId.optional().describe("Obligatoire pour update et delete"),
+  data: z.record(fieldName, fieldValue).optional().describe("Champs, obligatoire pour create et update"),
+});
+type BatchOperation = z.infer<typeof batchOperation>;
+
+interface BatchOutcome {
+  index: number;
+  action: string;
+  entity: string;
+  id?: string;
+  statut: "ok" | "erreur" | "non_executee";
+  message?: string;
+}
+
+function registerBatchTool(server: McpServer, ctx: ToolContext): void {
+  // Same rules as the single-record tools: which entities can be created, which fields are blocked.
+  const creatable = new Set<SamEntity>(WRITE_TOOLS.filter((t) => t.kind === "create").map((t) => t.entity));
+  const blocked = new Map<SamEntity, { names: string[]; reason: string }>();
+  for (const t of WRITE_TOOLS) if (t.blockedFields) blocked.set(t.entity, t.blockedFields);
+
+  server.registerTool(
+    "batch_write",
+    {
+      title: "Actions groupées",
+      description:
+        `Exécute en un seul appel jusqu'à ${BATCH_MAX_OPERATIONS} créations, modifications ou suppressions, sur n'importe quelles fiches SAM. ` +
+        "À privilégier dès qu'il y a plusieurs fiches à traiter (ex. ajouter 30 commentaires, passer 20 tâches à « fait », créer plusieurs rendez-vous). " +
+        "Toutes les opérations sont vérifiées avant la première écriture : une seule opération invalide bloque tout le lot. " +
+        "Elles sont ensuite exécutées dans l'ordre, sans retour arrière : si SAM refuse l'une d'elles, les précédentes restent enregistrées " +
+        "(stop_on_error=true arrête le lot à la première erreur). Le résultat détaille chaque opération." +
+        confirmationText(ctx.writeMode),
+      inputSchema: {
+        operations: z.array(batchOperation).min(1).max(BATCH_MAX_OPERATIONS).describe("Liste ordonnée des opérations"),
+        stop_on_error: z.boolean().default(false).describe("Arrêter à la première erreur SAM"),
+        ...(ctx.writeMode === "confirm" ? { confirmation_token: confirmationToken } : {}),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) =>
+      run(ctx, "batch_write", async () => {
+        const a = args as { operations: BatchOperation[]; stop_on_error: boolean; confirmation_token?: string };
+        const sam = await ctx.sam();
+
+        // 1. Validate everything before writing anything.
+        const problems: string[] = [];
+        const warnings = new Set<SamEntity>();
+        for (const [i, op] of a.operations.entries()) {
+          const where = `opération ${i + 1} (${op.action} ${op.entity})`;
+          try {
+            if (op.action !== "create" && !op.id) throw new ValidationError("id manquant");
+            if (op.action === "create" && op.id) throw new ValidationError("id interdit pour une création");
+            if (op.action === "delete") {
+              if (op.data && Object.keys(op.data).length > 0) throw new ValidationError("data inutile pour une suppression");
+              continue;
+            }
+            if (op.action === "create" && !creatable.has(op.entity)) throw new ValidationError(`création impossible pour ${op.entity}`);
+            if (!op.data || Object.keys(op.data).length === 0) throw new ValidationError("data manquant");
+            const rule = blocked.get(op.entity);
+            for (const k of Object.keys(op.data)) {
+              if (rule?.names.includes(k)) throw new ValidationError(`champ "${k}" refusé : ${rule.reason}`);
+            }
+            const verified = await sam.schema.validateWrite(op.entity, op.data as Record<string, FieldValue>, op.action);
+            if (!verified) warnings.add(op.entity);
+          } catch (err) {
+            if (err instanceof ValidationError) problems.push(`${where} : ${err.message}`);
+            else throw err;
+          }
+        }
+        if (problems.length > 0) {
+          throw new ValidationError(`lot refusé, rien n'a été écrit.\n- ${problems.slice(0, 20).join("\n- ")}`);
+        }
+
+        // 2. Optional human confirmation for the whole batch (one token).
+        const gate = await confirmationGate(ctx, sam.accountId, "batch_write", { operations: a.operations, stop: a.stop_on_error }, a.confirmation_token, false);
+        if (gate.preview) {
+          const count = (k: string) => a.operations.filter((o) => o.action === k).length;
+          return jsonResult({
+            status: "confirmation_requise",
+            action: "Actions groupées",
+            resume: { creations: count("create"), modifications: count("update"), suppressions: count("delete") },
+            operations: a.operations,
+            ...(warnings.size ? { avertissement: `${UNVERIFIED_FIELDS_WARNING} (${[...warnings].join(", ")})` } : {}),
+            confirmation_token: gate.token,
+            expire_dans_secondes: CONFIRMATION_TTL_SECONDS,
+            instructions: "Rien n'a été écrit. Présente ce lot à l'utilisateur ; s'il confirme, rappelle batch_write avec les mêmes opérations et ce confirmation_token.",
+          });
+        }
+
+        // 3. Execute in order.
+        const results: BatchOutcome[] = [];
+        let stopped = false;
+        for (const [i, op] of a.operations.entries()) {
+          const base = { index: i + 1, action: op.action, entity: op.entity };
+          if (stopped) {
+            results.push({ ...base, ...(op.id ? { id: op.id } : {}), statut: "non_executee" });
+            continue;
+          }
+          try {
+            const data = (op.data ?? {}) as Record<string, unknown>;
+            if (op.action === "create") {
+              const saved = await sam.client.create(op.entity, data);
+              results.push({ ...base, ...(typeof saved.id === "string" ? { id: saved.id } : {}), statut: "ok" });
+            } else if (op.action === "update") {
+              await sam.client.update(op.entity, op.id as string, data);
+              results.push({ ...base, id: op.id as string, statut: "ok" });
+            } else {
+              await sam.client.delete(op.entity, op.id as string);
+              results.push({ ...base, id: op.id as string, statut: "ok" });
+            }
+          } catch (err) {
+            if (!(err instanceof SamApiError)) throw err;
+            results.push({ ...base, ...(op.id ? { id: op.id } : {}), statut: "erreur", message: err.message });
+            if (a.stop_on_error) stopped = true;
+          }
+        }
+        const ok = results.filter((r) => r.statut === "ok").length;
+        const failed = results.filter((r) => r.statut === "erreur").length;
+        ctx.logger.info("tool.batch.done", { total: results.length, ok, failed });
+        return jsonResult({
+          status: failed === 0 ? "terminé" : "terminé_avec_erreurs",
+          total: results.length,
+          reussies: ok,
+          echecs: failed,
+          non_executees: results.length - ok - failed,
+          resultats: results,
+          ...(warnings.size ? { avertissement: `${UNVERIFIED_FIELDS_WARNING} (${[...warnings].join(", ")})` } : {}),
+        });
+      }),
+  );
+}
+
 export function registerTools(server: McpServer, ctx: ToolContext): void {
   for (const def of LIST_TOOLS) registerListTool(server, ctx, def);
   for (const def of GET_TOOLS) registerGetTool(server, ctx, def);
@@ -731,6 +871,7 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
   if (ctx.writeMode !== "disabled") {
     for (const def of WRITE_TOOLS) registerWriteTool(server, ctx, def);
     registerDeleteTool(server, ctx);
+    registerBatchTool(server, ctx);
     if (ctx.sendEmail) registerSendEmailTool(server, ctx);
   }
 }

@@ -20,7 +20,8 @@ function instructions(ctx: ToolContext): string {
     "Connecteur du CRM SAM (clients, prospects, commerciaux, distributeurs, produits, tâches, rendez-vous, documents, commentaires, notifications).",
     "Utilise get_crm_schema pour connaître les noms exacts des champs avant de filtrer, créer ou modifier. N'invente jamais de champ.",
     writes,
-    "Suppression : uniquement avec delete_record.",
+    "Suppression : delete_record pour une fiche.",
+    "Plusieurs fiches à créer, modifier ou supprimer : utilise batch_write (jusqu'à 50 opérations en un seul appel) plutôt qu'un appel par fiche.",
     ctx.sendEmail && ctx.writeMode !== "disabled"
       ? "Emails : send_email envoie depuis l'expéditeur du CRM SAM (HTML) ; pour un brouillon à relire, utiliser Gmail."
       : "L'envoi d'emails par SAM n'est pas activé sur ce connecteur : utiliser Gmail.",

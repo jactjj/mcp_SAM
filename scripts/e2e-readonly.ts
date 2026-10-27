@@ -16,7 +16,7 @@ if (existsSync(".env")) process.loadEnvFile(".env");
 const base = (process.env.MCP_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}`).replace(/\/+$/, "");
 const config = loadConfig(process.env);
 
-const WRITE_PREFIXES = ["create_", "update_", "add_", "delete_"];
+const WRITE_PREFIXES = ["create_", "update_", "add_", "delete_", "batch_"];
 let failures = 0;
 
 const text = (r: unknown) => ((r as CallToolResult).content?.[0] as { text?: string } | undefined)?.text ?? "";
@@ -65,7 +65,7 @@ async function run() {
     const writeTools = tools.filter((t) => WRITE_PREFIXES.some((p) => t.name.startsWith(p)));
     console.log(`  ${tools.length} outils exposés (${writeTools.length} d'écriture, mode ${writeMode})`);
     if (writeMode === "disabled") await check("aucun outil d'écriture en lecture seule", writeTools.length === 0);
-    else await check("les 24 outils d'écriture et de suppression sont exposés", writeTools.length === 24);
+    else await check("les 25 outils d'écriture, de suppression et d'actions groupées sont exposés", writeTools.length === 25);
 
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args });

@@ -47,6 +47,7 @@ const EXPECTED_WRITE_TOOLS = [
   "update_lead_comment",
   "update_notification",
   "delete_record",
+  "batch_write",
 ];
 
 let client: Client | undefined;
