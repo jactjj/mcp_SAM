@@ -29,6 +29,7 @@ const summary = (r: unknown): string => {
     if (b.item) return `ok, fiche avec ${Object.keys(b.item).length} champs`;
     if (b.entities) return `ok, ${b.entities.filter((e: { fields: unknown[] }) => e.fields.length > 0).length}/${b.entities.length} entités avec champs connus`;
     if (b.stats) return `ok, ${Object.keys(b.stats).join(", ")}`;
+    if (b.recherches_gmail) return `ok, ${b.emails_du_contact.length} email(s), ${b.recherches_gmail.historique_avec_le_contact.length} recherche(s) Gmail, commercial ${b.commercial_rattache ? "trouvé" : "absent"}`;
     return "ok";
   } catch {
     return "ok (texte)";
@@ -78,6 +79,7 @@ async function run() {
     const firstClient = JSON.parse(text(clients) || "{}").items?.[0];
     if (firstClient?.id) {
       await call("get_client", { id: firstClient.id });
+      await call("prepare_email", { client_id: firstClient.id, objet: "relance" });
       if (firstClient.nom) await call("search_clients", { search: firstClient.nom, limit: 5, fields: ["nom"] });
       if (firstClient.ville) await call("search_clients", { filters: [{ field: "ville", op: "eq", value: firstClient.ville }], limit: 5, fields: ["ville"] });
       await call("list_tasks", { filters: [{ field: "client_id", op: "eq", value: firstClient.id }], limit: 5, fields: ["titre", "statut"] });

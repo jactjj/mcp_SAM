@@ -12,6 +12,7 @@ const EXPECTED_READ_TOOLS = [
   "list_products",
   "get_crm_stats",
   "get_crm_schema",
+  "prepare_email",
   "list_tasks",
   "list_appointments",
   "list_documents",
@@ -69,7 +70,9 @@ describe("connexion et découverte", () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([...EXPECTED_READ_TOOLS, ...EXPECTED_WRITE_TOOLS].sort());
     expect(names.filter((n) => /delete|remove/i.test(n))).toEqual(["delete_record"]);
-    expect(names.some((n) => /email|mail|http|request|fetch/i.test(n))).toBe(false);
+    // No sending tool unless SAM_SEND_EMAIL is set (prepare_email only reads), no generic HTTP tool.
+    expect(names.some((n) => /^send_|http|request|fetch/i.test(n))).toBe(false);
+    expect(tools.find((t) => t.name === "prepare_email")?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "delete_record")?.annotations?.destructiveHint).toBe(true);
     for (const t of tools) {
       expect(t.description && t.description.length).toBeGreaterThan(20);
@@ -294,6 +297,34 @@ describe("schéma observé (format réel de l'API SAM)", () => {
     const schema = parseResult(await client.callTool({ name: "get_crm_schema", arguments: {} }));
     expect(schema.entities).toHaveLength(12);
     expect(schema.entities.find((e: any) => e.entity === "products").note).toContain("Aucun champ connu");
+  });
+});
+
+describe("prepare_email", () => {
+  it("rassemble la fiche, les adresses et les recherches Gmail", async () => {
+    const { appFetch, sam } = setup();
+    client = await connectClient(appFetch);
+    const res = parseResult(await client.callTool({ name: "prepare_email", arguments: { client_id: "c-1", objet: "relance devis" } }));
+    expect(res.contact.nom).toBe("Dupont");
+    expect(res.emails_du_contact).toEqual(["marie.dupont@example.com"]);
+    expect(res.recherches_gmail.historique_avec_le_contact[0]).toBe("from:marie.dupont@example.com OR to:marie.dupont@example.com");
+    expect(res.recherches_gmail.emails_du_meme_type_deja_envoyes[0]).toContain("relance devis");
+    expect(res.methode.length).toBeGreaterThan(3);
+    expect(sam.calls.some((c) => c.method !== "GET" && c.path !== "/crm-api-auth")).toBe(false);
+  });
+
+  it("exige un seul identifiant", async () => {
+    const { appFetch } = setup();
+    client = await connectClient(appFetch);
+    expect((await client.callTool({ name: "prepare_email", arguments: {} })).isError).toBe(true);
+    expect((await client.callTool({ name: "prepare_email", arguments: { client_id: "c-1", lead_id: "l-1" } })).isError).toBe(true);
+  });
+
+  it("prévient quand la fiche n'a pas d'email", async () => {
+    const { appFetch } = setup();
+    client = await connectClient(appFetch);
+    const res = parseResult(await client.callTool({ name: "prepare_email", arguments: { lead_id: "l-1" } }));
+    expect(res.avertissement).toContain("Aucune adresse email");
   });
 });
 

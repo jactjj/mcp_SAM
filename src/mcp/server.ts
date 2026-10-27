@@ -24,8 +24,9 @@ function instructions(ctx: ToolContext): string {
     ctx.sendEmail && ctx.writeMode !== "disabled"
       ? "Emails : send_email envoie depuis l'expéditeur du CRM SAM (HTML) ; pour un brouillon à relire, utiliser Gmail."
       : "L'envoi d'emails par SAM n'est pas activé sur ce connecteur : utiliser Gmail.",
-    "Pour les emails, l'agenda et les documents, combine ce connecteur avec les connecteurs Google Workspace (Gmail, Google Calendar, Drive) : " +
-      "par exemple, lis la fiche client ici puis rédige un brouillon Gmail, ou crée le rendez-vous dans SAM puis dans Google Calendar.",
+    "Emails à un client ou un prospect : appelle d'abord prepare_email, puis, avec le connecteur Gmail, lis l'historique des échanges avec ce contact " +
+      "et un email du même type déjà envoyé, et rédige dans le même style à partir de la fiche SAM. Crée un brouillon Gmail, ou envoie si l'utilisateur le demande, puis mets SAM à jour.",
+    "Agenda et documents : combine ce connecteur avec Google Calendar et Drive (ex. créer le rendez-vous dans SAM puis dans Google Calendar).",
     "Les résultats sont paginés et les textes longs tronqués : affine avec search, filters, fields, limit et offset.",
   ].join("\n");
 }

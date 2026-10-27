@@ -565,9 +565,97 @@ export const WRITE_TOOLS: WriteToolDef[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Email preparation (combined with the Gmail connector by Claude)
+// ---------------------------------------------------------------------------
+
+const EMAIL_VALUE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONTACT_KEYS = /(^|_)(nom|prenom|first_name|last_name|societe|email|telephone|ville|code_postal|statut|source|commentaire|commercial_id|distributeur_id|dirigeant|activity|reminder)(_|$)/;
+
+function pick(rec: Record<string, unknown>, pattern: RegExp): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(rec).filter(([k, v]) => pattern.test(k) && v !== null && v !== "" && typeof v !== "boolean"));
+}
+
+function emailsOf(rec: Record<string, unknown>): string[] {
+  return Object.entries(rec)
+    .filter(([k, v]) => /email/.test(k) && typeof v === "string" && EMAIL_VALUE.test(v))
+    .map(([, v]) => v as string);
+}
+
+function registerPrepareEmailTool(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "prepare_email",
+    {
+      title: "Préparer un email",
+      description:
+        "À appeler AVANT de rédiger un email à un client ou un prospect SAM. Rassemble la fiche (coordonnées, société, statuts), " +
+        "le commercial et le distributeur rattachés, les dernières tâches et rendez-vous, et donne les recherches Gmail à lancer " +
+        "pour s'appuyer sur les échanges passés avec ce contact et sur les emails du même type déjà envoyés.",
+      inputSchema: {
+        client_id: recordId.optional().describe("Identifiant du client (ou lead_id)"),
+        lead_id: recordId.optional().describe("Identifiant du prospect (ou client_id)"),
+        objet: z.string().trim().max(300).optional().describe("Ce que l'utilisateur veut envoyer, ex. « relance devis », « pré-demande »"),
+      },
+      annotations: READ,
+    },
+    async ({ client_id, lead_id, objet }) =>
+      run(ctx, "prepare_email", async () => {
+        if ((client_id ? 1 : 0) + (lead_id ? 1 : 0) !== 1) throw new ValidationError("Indiquer soit client_id, soit lead_id");
+        const sam = await ctx.sam();
+        const entity: SamEntity = client_id ? "clients" : "leads";
+        const id = (client_id ?? lead_id) as string;
+        const linkField = client_id ? "client_id" : "lead_id";
+        const record = await sam.client.get(entity, id);
+        const contact = sanitizeRecord(pick(record, CONTACT_KEYS), LIST_MAX_STRING);
+        const emails = emailsOf(record);
+
+        const optional = async <T>(fn: () => Promise<T>): Promise<T | undefined> => fn().catch(() => undefined);
+        const commercialId = typeof record.commercial_id === "string" ? record.commercial_id : undefined;
+        const distributeurId = typeof record.distributeur_id === "string" ? record.distributeur_id : undefined;
+        const [commercial, distributeur, taches, rdv] = await Promise.all([
+          commercialId ? optional(() => sam.client.get("commerciaux", commercialId)) : undefined,
+          distributeurId ? optional(() => sam.client.get("distributeurs", distributeurId)) : undefined,
+          optional(() => sam.client.list("taches", { limit: 5, offset: 0, filters: [{ field: linkField, op: "eq", value: id }] })),
+          optional(() => sam.client.list("rdv", { limit: 5, offset: 0, filters: [{ field: linkField, op: "eq", value: id }] })),
+        ]);
+        const person = (r: Record<string, unknown> | undefined) =>
+          r ? sanitizeRecord(pick(r, /(name|nom|email|telephone|dirigeant)/), LIST_MAX_STRING) : undefined;
+        const brief = (items: Record<string, unknown>[] | undefined, pattern: RegExp) =>
+          items?.map((t) => sanitizeRecord(pick(t, pattern), LIST_MAX_STRING));
+
+        const societe = typeof record.societe === "string" && record.societe.trim() ? record.societe.trim() : undefined;
+        const historique = emails.map((e) => `from:${e} OR to:${e}`);
+        if (societe) historique.push(`"${societe}"`);
+        const modeles = objet ? [`in:sent "${objet}"`, `in:sent ${objet}`] : ["in:sent (relance OR pré-demande OR devis OR dossier)"];
+
+        return jsonResult({
+          entity,
+          id,
+          contact,
+          emails_du_contact: emails,
+          ...(person(commercial) ? { commercial_rattache: person(commercial) } : {}),
+          ...(person(distributeur) ? { distributeur_rattache: person(distributeur) } : {}),
+          ...(taches ? { dernieres_taches: brief(taches.items, /(titre|statut|due|description)/) } : {}),
+          ...(rdv ? { rendez_vous: brief(rdv.items, /(titre|date|end_at|statut|type|lieu|commentaire)/) } : {}),
+          recherches_gmail: { historique_avec_le_contact: historique, emails_du_meme_type_deja_envoyes: modeles },
+          methode: [
+            "1. Avec le connecteur Gmail, lire les derniers échanges avec ce contact (recherches « historique ») : contexte, ton, ce qui a déjà été dit ou promis.",
+            "2. Chercher dans les emails envoyés un email du même type adressé à un autre contact (recherches « emails du même type ») et reprendre sa structure et ses formulations habituelles.",
+            "3. Rédiger avec les informations de cette fiche SAM. Ne rien inventer (montant, date, pièce) qui ne figure ni dans SAM ni dans les emails.",
+            "4. Si les emails passés mettent le commercial en copie, faire de même (son email est dans commercial_rattache).",
+            "5. Par défaut, créer un brouillon Gmail et le montrer ; l'envoyer directement seulement si l'utilisateur l'a demandé.",
+            "6. Après l'envoi, mettre SAM à jour si c'est utile (ex. champ mail_envoye d'un prospect, tâche de relance).",
+          ],
+          ...(emails.length === 0 ? { avertissement: "Aucune adresse email valide sur cette fiche : demander l'adresse à l'utilisateur." } : {}),
+        });
+      }),
+  );
+}
+
 export function registerTools(server: McpServer, ctx: ToolContext): void {
   for (const def of LIST_TOOLS) registerListTool(server, ctx, def);
   for (const def of GET_TOOLS) registerGetTool(server, ctx, def);
+  registerPrepareEmailTool(server, ctx);
 
   server.registerTool(
     "get_crm_stats",

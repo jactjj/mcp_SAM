@@ -50,6 +50,7 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 | Produits d'un client | `list_client_products` | `add_client_product`, `update_client_product` |
 | Suppression (toutes les fiches) | — | `delete_record` |
 | Schéma | `get_crm_schema` | — |
+| Emails (avec Gmail) | `prepare_email` : fiche, commercial, tâches, rendez-vous + recherches Gmail à lancer | `send_email` (si `SAM_SEND_EMAIL=true`) |
 
 Paramètres communs des listes : `search`, `filters` (`[{field, op, value}]` avec `op` = `eq`, `not`, `gte`, `lte`, `like`, `null`), `fields` (projection), `limit` (1-50, défaut 20), `offset`.
 
@@ -108,7 +109,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 111 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 114 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict
@@ -150,6 +151,8 @@ Logs en direct : `npx wrangler tail`.
 3. Chaque personne, depuis son propre compte Claude.ai, clique sur **Connecter** : la page « Autoriser l'accès au CRM SAM » s'ouvre. Elle saisit **son** mot de passe de connecteur (`SAM_ACCOUNT_<N>_CONNECTOR_PASSWORD`), puis **Autoriser**. Claude utilise ensuite son compte SAM, et seulement le sien.
 4. Dans les réglages du connecteur, régler les outils d'écriture (`create_*`, `update_*`, `add_*_comment`) sur **demander l'approbation à chaque fois**.
 5. Activer le connecteur dans une conversation (menu outils) et essayer : « Trouve le client Dupont et résume ses derniers commentaires ».
+
+**Emails : SAM + Gmail.** Quand on demande un email à un client ou un prospect, Claude appelle `prepare_email` (fiche SAM, commercial, tâches, rendez-vous, adresses), puis lit avec le connecteur Gmail l'historique des échanges avec ce contact et un email du même type déjà envoyé. Il rédige ensuite dans le même style, crée un brouillon Gmail (ou envoie si on le demande) et met SAM à jour. Le connecteur SAM ne lit pas Gmail lui-même : c'est Claude qui combine les deux, d'où la nécessité d'activer les deux connecteurs dans la conversation.
 
 Exemples combinés avec Google Workspace :
 

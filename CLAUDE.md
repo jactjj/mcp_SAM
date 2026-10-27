@@ -92,7 +92,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 ## F. État du projet (2026-10-26)
 
 Testé :
-- 111 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- 114 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
 - **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
@@ -107,6 +107,7 @@ Non fait / à faire :
 - Dépôt GitHub : `https://github.com/jactjj/mcp_SAM` (public).
 - Email : `POST /send-email` attend `to`, `subject`, `html` (découvert le 2026-10-26 par une requête vide, réponse 400 « Missing required fields: to, subject, html »). Outil `send_email` implémenté, **désactivé** (`SAM_SEND_EMAIL=false`) jusqu'à un envoi de test réel validé par l'utilisateur. Pas de nom de modèle côté API : les modèles du CRM sont à fournir en HTML.
 - Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. `delete_record` validé sur la vraie API (suppression de la tâche de test, rejeu et jeton détourné refusés) ; les autres nouveaux outils sont testés en aperçu seulement. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
+- Emails : `prepare_email` (lecture) rassemble fiche, commercial, distributeur, tâches, rendez-vous et propose les recherches Gmail ; les instructions serveur décrivent la méthode SAM + Gmail (historique du contact, email du même type déjà envoyé, brouillon par défaut, mise à jour SAM). Le serveur n'accède pas à Gmail : Claude combine les connecteurs.
 - **Comptes utilisateurs SAM : impossible pour l'instant**, aucun endpoint documenté (les 12 entités n'incluent pas les utilisateurs). Nécessite un endpoint fourni par le développeur SAM ; ne pas en inventer.
 
 Limitations : champs obligatoires inconnus (SAM les vérifie à la création) ; types déduits des valeurs observées ; usage unique des codes/confirmations et verrouillage du mot de passe en mémoire par instance ; refresh tokens révocables globalement ou en retirant le compte ; mode sans état (pas d'élicitation MCP).
