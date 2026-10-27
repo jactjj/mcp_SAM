@@ -31,6 +31,12 @@ export interface Config {
     timeoutMs: number;
     /** Enables the send_email tool (POST /send-email). Off by default. */
     sendEmail: boolean;
+    /**
+     * Public (anon) key of SAM's Supabase project, the one shipped in SAM's own web app.
+     * Enables the features the CRM web app performs outside /crm-api (email templates and
+     * history, file storage, account creation). Undefined = those tools are not exposed.
+     */
+    supabaseAnonKey: string | undefined;
   };
   accounts: AccountConfig[];
   writeMode: WriteMode;
@@ -54,6 +60,7 @@ const raw = (v: string | undefined) => (v === undefined || v === "" ? undefined 
 /** Every value that must never appear in logs. */
 export function configSecrets(config: Config): string[] {
   const out = [config.auth.secret];
+  if (config.sam.supabaseAnonKey) out.push(config.sam.supabaseAnonKey);
   for (const a of config.accounts) {
     for (const v of [a.password, a.connectorPassword, a.staticToken]) if (v) out.push(v);
   }
@@ -158,7 +165,7 @@ export function loadConfig(env: Record<string, unknown>): Config {
 
   const hosts = clean(e.OAUTH_ALLOWED_REDIRECT_HOSTS);
   return {
-    sam: { baseUrl, mock, timeoutMs, sendEmail: truthy(e.SAM_SEND_EMAIL) },
+    sam: { baseUrl, mock, timeoutMs, sendEmail: truthy(e.SAM_SEND_EMAIL), supabaseAnonKey: clean(e.SAM_SUPABASE_ANON_KEY) },
     accounts,
     writeMode: writeModeRaw as WriteMode,
     auth: {

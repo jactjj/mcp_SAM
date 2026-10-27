@@ -48,6 +48,8 @@ const EXPECTED_WRITE_TOOLS = [
   "update_notification",
   "delete_record",
   "batch_write",
+  "convert_lead",
+  "set_reminder",
 ];
 
 let client: Client | undefined;

@@ -21,6 +21,7 @@ const DEFAULT_LIFETIME_MS = 3_600_000;
 interface CachedToken {
   accessToken: string;
   expiresAtMs: number;
+  userId: string | undefined;
 }
 
 export interface TokenManagerOptions {
@@ -56,6 +57,12 @@ export class SamTokenManager {
       });
     }
     return this.inflight;
+  }
+
+  /** SAM user id of this account (from the auth response), used for converted_by / uploaded_by / sent_by. */
+  async getUserId(): Promise<string | undefined> {
+    await this.getToken();
+    return this.cached?.userId;
   }
 
   invalidate(token?: string): void {
@@ -98,9 +105,9 @@ export class SamTokenManager {
     }
 
     const now = this.now();
-    const { access_token, expires_at, expires_in } = parsed.data;
+    const { access_token, expires_at, expires_in, user } = parsed.data;
     const expiresAtMs = expires_at ? expires_at * 1000 : now + (expires_in ? expires_in * 1000 : DEFAULT_LIFETIME_MS);
-    this.cached = { accessToken: access_token, expiresAtMs };
+    this.cached = { accessToken: access_token, expiresAtMs, userId: user?.id };
     logger.info("sam.auth.ok", { account: credentials.accountId, expires_in_s: Math.round((expiresAtMs - now) / 1000) });
     return access_token;
   }

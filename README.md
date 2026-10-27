@@ -51,6 +51,10 @@ Le même code tourne aussi sous Node.js (`src/node.ts`), ce qui permet un héber
 | Suppression (toutes les fiches) | — | `delete_record` |
 | Actions groupées | — | `batch_write` : jusqu'à 50 créations/modifications/suppressions en un appel (un seul clic d'approbation), toutes vérifiées avant la première écriture, puis exécutées dans l'ordre sans retour arrière ; `stop_on_error` pour s'arrêter à la première erreur |
 | Schéma | `get_crm_schema` | — |
+| Actions du CRM | — | `convert_lead` (prospect → client ou distributeur, logique du bouton du CRM), `set_reminder` (date de relance, 9 h heure de Paris) |
+| Modèles d'email du CRM | `list_email_templates`, `preview_template_email` | `send_template_email` (variables `{{client.nom}}`…, copies du modèle, commercial en copie, historique de la fiche) |
+| Fichiers | — | `create_upload_link` : lien à usage unique (6 h) où l'utilisateur dépose un PDF/JPG/PNG (20 Mo), rangé comme le CRM |
+| Comptes commerciaux | — | `create_commercial_account` : accès CRM + envoi des identifiants (toujours confirmé, mot de passe jamais visible) |
 | Emails (avec Gmail) | `prepare_email` : fiche, commercial, tâches, rendez-vous + recherches Gmail à lancer | `send_email` (si `SAM_SEND_EMAIL=true`) |
 
 Paramètres communs des listes : `search`, `filters` (`[{field, op, value}]` avec `op` = `eq`, `not`, `gte`, `lte`, `like`, `null`), `fields` (projection), `limit` (1-50, défaut 20), `offset`.
@@ -60,6 +64,20 @@ Les écritures prennent `data` : un objet `{champ: valeur}` dont **chaque nom de
 Email : `send_email` envoie via l'expéditeur du CRM (`POST /send-email`, champs `to`, `subject`, `html`, vérifiés le 26/10/2026), un destinataire à la fois. Il est désactivé tant que `SAM_SEND_EMAIL` ne vaut pas `true`. L'endpoint n'accepte pas de nom de modèle : les modèles du CRM doivent être fournis en HTML.
 
 Volontairement absents : création de comptes utilisateurs (aucun endpoint documenté), requête HTTP générique.
+
+## Fonctions du site SAM (hors API officielle)
+
+Avec l'accord de SAM (27/10/2026), le connecteur reprend certaines fonctions du site du CRM (`https://sam.classicall.fr`) que l'API `/crm-api` ne propose pas. Leur logique a été lue dans le code public du site et elles passent par les mêmes chemins, avec le compte de l'utilisateur connecté (mêmes droits) :
+
+| Fonction | Chemin utilisé |
+|---|---|
+| Modèles d'email, infos SAM | lecture des tables `email_templates`, `email_template_attachments`, `sam_contact_info` |
+| Historique des emails | écriture dans `email_logs` |
+| Dépôt de fichiers | stockage `documents/<client>/<type>_<horodatage>.<ext>`, lien signé 1 an, document « en révision » |
+| Comptes commerciaux | fonctions `create-user-account` et `send-access-credentials-commercial` |
+| Commentaires, notifications | lecture directe quand `/crm-api` renvoie son erreur `deleted_at` |
+
+Ces fonctions nécessitent `SAM_SUPABASE_ANON_KEY` (clé publique du site, envoyée par `npm run secrets:push`). Sans elle, elles ne sont pas exposées. Si SAM modifie son site, ces fonctions peuvent devoir être adaptées.
 
 ## Sécurité
 
@@ -110,7 +128,7 @@ npx @modelcontextprotocol/inspector
 ## Tests
 
 ```bash
-npm test            # Vitest, 120 tests, API SAM simulée, aucun accès réseau
+npm test            # Vitest, 135 tests, API SAM simulée, aucun accès réseau
 npm run env:check   # vérifie le .env sans afficher les secrets
 npm run e2e         # bout en bout en lecture seule sur la vraie API (serveur lancé)
 npm run typecheck   # tsc strict
@@ -174,7 +192,8 @@ Voir [.env.example](.env.example) pour la liste commentée.
 | `SAM_ACCOUNT_<N>_LABEL` | non | Nom du compte (logs, instructions de Claude) |
 | `SAM_MOCK` | non | `true` = API simulée (dev/tests uniquement) |
 | `SAM_WRITE_MODE` | non | `disabled`, `confirm` (défaut), `direct` |
-| `SAM_SEND_EMAIL` | non | `true` active l'outil `send_email` (défaut `false`) |
+| `SAM_SEND_EMAIL` | non | `true` active `send_email` et `send_template_email` (défaut `false`) |
+| `SAM_SUPABASE_ANON_KEY` | non | Clé publique du site SAM : active modèles d'email, historique, dépôt de fichiers, comptes commerciaux — **secret** (`secrets:push`) |
 | `SAM_REQUEST_TIMEOUT_MS` | non | Délai par appel SAM (défaut 15000) |
 | `MCP_AUTH_SECRET` | oui | Clé de signature ≥ 32 caractères — **secret** |
 | `MCP_PUBLIC_URL` | recommandé | URL publique (émetteur OAuth) |

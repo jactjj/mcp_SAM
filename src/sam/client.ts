@@ -66,9 +66,23 @@ export class SamClient {
     return this.request("DELETE", `/crm-api/${entityPath(entity)}/${recordPath(id)}`);
   }
 
-  /** POST /send-email — fields required by SAM (checked 2026-10-26): to, subject, html. */
-  async sendEmail(email: { to: string; subject: string; html: string }): Promise<unknown> {
-    return this.request("POST", "/send-email", email);
+  /**
+   * POST /send-email. Required by SAM: to, subject, html (checked 2026-10-26). The web app also
+   * sends to as a list, cc, bcc and attachments [{filename, content(base64)}] (read in its code 2026-10-27).
+   */
+  async sendEmail(email: {
+    to: string | string[];
+    subject: string;
+    html: string;
+    cc?: string[];
+    bcc?: string[];
+    attachments?: { filename: string; content: string }[];
+  }): Promise<unknown> {
+    const body: Record<string, unknown> = { to: email.to, subject: email.subject, html: email.html };
+    if (email.cc?.length) body.cc = email.cc;
+    if (email.bcc?.length) body.bcc = email.bcc;
+    if (email.attachments?.length) body.attachments = email.attachments;
+    return this.request("POST", "/send-email", body);
   }
 
   async stats(): Promise<unknown> {

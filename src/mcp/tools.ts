@@ -6,7 +6,9 @@ import type { Logger } from "../logger.js";
 import type { SamClient } from "../sam/client.js";
 import { type Filter, type SamEntity, FIELD_NAME_PATTERN, FILTER_OPERATORS, RECORD_ID_PATTERN, SAM_ENTITIES } from "../sam/entities.js";
 import { SamApiError, ValidationError } from "../sam/errors.js";
+import type { SamDirect } from "../sam/direct.js";
 import { type FieldValue, type SchemaRegistry, SERVER_MANAGED_FIELDS } from "../sam/schema.js";
+import { registerActionTools } from "./actions.js";
 import { type TokenSigner, type UsedTokenRegistry, canonicalJson, sha256Base64Url } from "../security/signer.js";
 import { DETAIL_MAX_STRING, LIST_MAX_STRING, errorResult, jsonResult, sanitizeRecord } from "./output.js";
 
@@ -14,6 +16,10 @@ export interface SamSession {
   accountId: string;
   client: SamClient;
   schema: SchemaRegistry;
+  /** Same channels as SAM's web app (templates, history, files, accounts); undefined without SAM_SUPABASE_ANON_KEY. */
+  direct: SamDirect | undefined;
+  /** SAM user id of the account. */
+  userId: () => Promise<string | undefined>;
 }
 
 export interface ToolContext {
@@ -25,6 +31,10 @@ export interface ToolContext {
   writeMode: WriteMode;
   /** send_email is registered only when true (SAM_SEND_EMAIL) and writes are enabled. */
   sendEmail: boolean;
+  /** Public base URL of this server (upload links). */
+  publicBaseUrl: string;
+  /** True when SAM_SUPABASE_ANON_KEY is set: web-app features (templates, files, accounts) are exposed. */
+  directEnabled: boolean;
   signer: TokenSigner;
   usedConfirmations: UsedTokenRegistry;
   logger: Logger;
@@ -36,8 +46,8 @@ export const CONFIRMATION_TTL_SECONDS = 600;
 // Shared input schemas
 // ---------------------------------------------------------------------------
 
-const fieldName = z.string().regex(FIELD_NAME_PATTERN, "Nom de champ invalide");
-const recordId = z.string().regex(RECORD_ID_PATTERN, "Identifiant invalide").describe("Identifiant SAM de l'enregistrement");
+export const fieldName = z.string().regex(FIELD_NAME_PATTERN, "Nom de champ invalide");
+export const recordId = z.string().regex(RECORD_ID_PATTERN, "Identifiant invalide").describe("Identifiant SAM de l'enregistrement");
 
 const listShape = {
   search: z.string().trim().min(1).max(100).optional().describe("Recherche texte libre (paramètre `search` de l'API SAM)"),
@@ -57,7 +67,7 @@ const listShape = {
   offset: z.number().int().min(0).max(10_000).default(0).describe("Décalage pour la pagination"),
 };
 
-const fieldValue = z.union([
+export const fieldValue = z.union([
   z.string().max(5000),
   z.number(),
   z.boolean(),
@@ -71,13 +81,13 @@ const dataSchema = z
   .refine((d) => Object.keys(d).length <= 40, "40 champs maximum")
   .describe("Champs à enregistrer, avec leurs noms exacts issus de get_crm_schema");
 
-const confirmationToken = z
+export const confirmationToken = z
   .string()
   .max(4096)
   .optional()
   .describe("Jeton renvoyé par l'aperçu. À fournir UNIQUEMENT après accord explicite de l'utilisateur.");
 
-const READ: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+export const READ: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const CREATE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const UPDATE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 
@@ -85,7 +95,7 @@ const UPDATE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, id
 // Error handling
 // ---------------------------------------------------------------------------
 
-async function run(ctx: ToolContext, tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+export async function run(ctx: ToolContext, tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
   const started = Date.now();
   try {
     const result = await fn();
@@ -108,6 +118,23 @@ async function run(ctx: ToolContext, tool: string, fn: () => Promise<CallToolRes
 // ---------------------------------------------------------------------------
 // Tool factories
 // ---------------------------------------------------------------------------
+
+const DIRECT_FALLBACK: Partial<Record<SamEntity, "client_comments" | "lead_comments" | "notifications">> = {
+  "client-comments": "client_comments",
+  "lead-comments": "lead_comments",
+  notifications: "notifications",
+};
+
+/** Same filters, in the syntax of SAM's database API (used by the web app). */
+function directQuery(filters: Filter[], limit: number, offset: number): URLSearchParams {
+  const q = new URLSearchParams({ select: "*", order: "created_at.desc", limit: String(limit), offset: String(offset) });
+  for (const f of filters) {
+    const v = String(f.value ?? "");
+    const op = { eq: `eq.${v}`, not: `neq.${v}`, gte: `gte.${v}`, lte: `lte.${v}`, like: `ilike.*${v.replace(/[*%]/g, "")}*`, null: "is.null" }[f.op];
+    q.append(f.field, op);
+  }
+  return q;
+}
 
 interface ListToolDef {
   name: string;
@@ -149,7 +176,15 @@ function registerListTool(server: McpServer, ctx: ToolContext, def: ListToolDef)
           }
         }
         await sam.schema.validateReadFields(def.entity, [...filters.map((f) => f.field), ...(a.fields ?? [])]);
-        const res = await sam.client.list(def.entity, { limit: a.limit, offset: a.offset, search: a.search, filters });
+        let res: { items: Record<string, unknown>[]; total: number | undefined };
+        try {
+          res = await sam.client.list(def.entity, { limit: a.limit, offset: a.offset, search: a.search, filters });
+        } catch (err) {
+          // SAM's /crm-api bug on these tables (filter on a missing deleted_at column): read them like the web app.
+          const table = DIRECT_FALLBACK[def.entity];
+          if (!(table && sam.direct && err instanceof SamApiError && err.code === "bad_request" && /deleted_at/.test(err.message))) throw err;
+          res = { items: await sam.direct.select(table, directQuery(filters, a.limit, a.offset)), total: undefined };
+        }
         const items = res.items.slice(0, a.limit).map((r) => sanitizeRecord(r, LIST_MAX_STRING, a.fields));
         return jsonResult({
           entity: def.entity,
@@ -208,7 +243,7 @@ interface ConfirmClaims {
   sub: string;
 }
 
-function confirmationText(mode: WriteMode): string {
+export function confirmationText(mode: WriteMode): string {
   if (mode !== "confirm") return "";
   return (
     " CONTRÔLE HUMAIN OBLIGATOIRE : (1) appeler sans confirmation_token pour obtenir un aperçu, rien n'est écrit ; " +
@@ -218,7 +253,7 @@ function confirmationText(mode: WriteMode): string {
   );
 }
 
-const UNVERIFIED_FIELDS_WARNING =
+export const UNVERIFIED_FIELDS_WARNING =
   "Les champs de cette entité ne sont pas connus du connecteur (SAM ne les décrit pas et aucune fiche n'est lisible) : " +
   "les noms de champs n'ont pas été vérifiés, SAM les validera à l'enregistrement.";
 
@@ -229,7 +264,7 @@ type Gate = { preview: true; token: string } | { preview: false };
  * as for deletions), a call without token returns a preview token; a call with token must carry
  * exactly the same payload (SHA-256 of canonical JSON), for the same tool and account, once.
  */
-async function confirmationGate(
+export async function confirmationGate(
   ctx: ToolContext,
   accountId: string,
   tool: string,
@@ -319,33 +354,42 @@ function registerDeleteTool(server: McpServer, ctx: ToolContext): void {
 }
 
 function registerSendEmailTool(server: McpServer, ctx: ToolContext): void {
+  const emails = z.array(z.string().trim().email("Adresse email invalide").max(254)).max(10);
   server.registerTool(
     "send_email",
     {
       title: "Envoyer un email via SAM",
       description:
-        "Envoie un email depuis l'expéditeur du CRM SAM (endpoint /send-email) à UN destinataire. Le corps est en HTML simple " +
-        "(<p>, <br>, <strong>, <a href>, <ul><li>). Vérifier l'adresse dans la fiche SAM avant l'envoi ; un email envoyé ne peut pas être annulé. " +
-        "Pour un brouillon à relire, utiliser plutôt Gmail. Après l'envoi à un prospect, on peut mettre à jour sa fiche (ex. mail_envoye) avec update_lead." +
+        "Envoie un email libre depuis l'expéditeur du CRM SAM, avec copies (cc, bcc) possibles. Le corps est en HTML simple " +
+        "(<p>, <br>, <strong>, <a href>, <ul><li>). Pour un email type du CRM (pré-demande, relance…), préférer send_template_email. " +
+        "Indiquer la fiche (entity_type + entity_id) pour inscrire l'envoi dans son historique comme le CRM. Un email envoyé ne peut pas être annulé ; " +
+        "pour un brouillon à relire, utiliser Gmail." +
         confirmationText(ctx.writeMode),
       inputSchema: {
-        to: z.string().trim().email("Adresse email invalide").max(254).describe("Adresse du destinataire (une seule)"),
+        to: z.string().trim().email("Adresse email invalide").max(254).describe("Adresse du destinataire principal"),
+        cc: emails.optional().describe("Copies (ex. le commercial)"),
+        bcc: emails.optional().describe("Copies cachées"),
         subject: z.string().trim().min(1).max(200).describe("Objet de l'email"),
         html: z.string().min(1).max(50_000).describe("Corps de l'email en HTML"),
+        entity_type: z.enum(["client", "lead", "distributeur", "commercial"]).optional().describe("Fiche concernée, pour l'historique"),
+        entity_id: recordId.optional(),
         ...(ctx.writeMode === "confirm" ? { confirmation_token: confirmationToken } : {}),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async (args) =>
       run(ctx, "send_email", async () => {
-        const a = args as { to: string; subject: string; html: string; confirmation_token?: string };
+        const a = args as { to: string; cc?: string[]; bcc?: string[]; subject: string; html: string; entity_type?: string; entity_id?: string; confirmation_token?: string };
+        if (Boolean(a.entity_type) !== Boolean(a.entity_id)) throw new ValidationError("entity_type et entity_id vont ensemble");
         const sam = await ctx.sam();
-        const gate = await confirmationGate(ctx, sam.accountId, "send_email", { to: a.to, subject: a.subject, html: a.html }, a.confirmation_token, false);
+        const payload = { to: a.to, cc: a.cc ?? [], bcc: a.bcc ?? [], subject: a.subject, html: a.html, entity: a.entity_type ?? null, id: a.entity_id ?? null };
+        const gate = await confirmationGate(ctx, sam.accountId, "send_email", payload, a.confirmation_token, false);
         if (gate.preview) {
           return jsonResult({
             status: "confirmation_requise",
             action: "Envoyer un email via SAM",
             destinataire: a.to,
+            copies: a.cc ?? [],
             objet: a.subject,
             apercu_texte: a.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1500),
             confirmation_token: gate.token,
@@ -353,10 +397,33 @@ function registerSendEmailTool(server: McpServer, ctx: ToolContext): void {
             instructions: "Rien n'a été envoyé. Montre l'email à l'utilisateur ; s'il confirme, rappelle send_email avec les mêmes paramètres et ce confirmation_token.",
           });
         }
-        await sam.client.sendEmail({ to: a.to, subject: a.subject, html: a.html });
+        const result = await sam.client.sendEmail({ to: [a.to], subject: a.subject, html: a.html, cc: a.cc, bcc: a.bcc });
+        let historique: string | undefined;
+        if (a.entity_type && a.entity_id && sam.direct) {
+          const providerId = result && typeof result === "object" && typeof (result as Record<string, unknown>).id === "string" ? (result as Record<string, unknown>).id : null;
+          const ok = await sam.direct
+            .insert("email_logs", {
+              entity_type: a.entity_type,
+              entity_id: a.entity_id,
+              email_template_id: null,
+              to_emails: [a.to],
+              cc_emails: a.cc?.length ? a.cc : null,
+              bcc_emails: a.bcc?.length ? a.bcc : null,
+              subject_final: a.subject,
+              body_final: a.html,
+              attachments: [],
+              status: "sent",
+              provider_message_id: providerId,
+              error_message: null,
+              sent_by_user_id: (await sam.userId()) ?? null,
+            })
+            .then(() => true)
+            .catch(() => false);
+          historique = ok ? "inscrit dans l'historique de la fiche" : "ATTENTION : envoyé mais non inscrit dans l'historique";
+        }
         // Recipient and content are personal data: never logged.
         ctx.logger.info("tool.email.sent");
-        return jsonResult({ status: "envoyé", destinataire: a.to, objet: a.subject });
+        return jsonResult({ status: "envoyé", destinataire: a.to, copies: a.cc ?? [], objet: a.subject, ...(historique ? { historique } : {}) });
       }),
   );
 }
@@ -874,4 +941,5 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
     registerBatchTool(server, ctx);
     if (ctx.sendEmail) registerSendEmailTool(server, ctx);
   }
+  registerActionTools(server, ctx);
 }

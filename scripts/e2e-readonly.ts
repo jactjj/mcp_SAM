@@ -65,7 +65,7 @@ async function run() {
     const writeTools = tools.filter((t) => WRITE_PREFIXES.some((p) => t.name.startsWith(p)));
     console.log(`  ${tools.length} outils exposés (${writeTools.length} d'écriture, mode ${writeMode})`);
     if (writeMode === "disabled") await check("aucun outil d'écriture en lecture seule", writeTools.length === 0);
-    else await check("les 25 outils d'écriture, de suppression et d'actions groupées sont exposés", writeTools.length === 25);
+    else await check("les outils d'écriture, de suppression et d'actions groupées sont exposés", writeTools.length >= 25);
 
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args });

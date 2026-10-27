@@ -31,7 +31,7 @@ describe("send_email", () => {
     expect(tool?.annotations?.openWorldHint).toBe(true);
     const res = parseResult(await client.callTool({ name: "send_email", arguments: email }));
     expect(res.status).toBe("envoyé");
-    expect(sam.sentEmails).toEqual([email]);
+    expect(sam.sentEmails).toEqual([{ ...email, to: [email.to] }]);
   });
 
   it("en mode confirm, l'aperçu n'envoie rien", async () => {

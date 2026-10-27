@@ -10,6 +10,8 @@ import { authenticateBearer, publicBaseUrl, registerOAuthRoutes, SCOPE } from ".
 import { type FetchLike, SamTokenManager } from "./sam/auth.js";
 import { SamClient } from "./sam/client.js";
 import { type CredentialsProvider, EnvCredentialsProvider } from "./sam/credentials.js";
+import { SamDirect, supabaseRoot } from "./sam/direct.js";
+import { registerUploadRoutes } from "./upload/routes.js";
 import { SchemaRegistry } from "./sam/schema.js";
 import { TokenSigner, UsedTokenRegistry } from "./security/signer.js";
 
@@ -62,7 +64,10 @@ export function createApp(opts: AppOptions) {
         timeoutMs: config.sam.timeoutMs,
       });
       const client = new SamClient({ baseUrl: config.sam.baseUrl, fetch: samFetch, tokens, logger, timeoutMs: config.sam.timeoutMs });
-      s = { accountId: creds.accountId, client, schema: new SchemaRegistry(client, logger) };
+      const direct = config.sam.supabaseAnonKey
+        ? new SamDirect({ root: supabaseRoot(config.sam.baseUrl), anonKey: config.sam.supabaseAnonKey, fetch: samFetch, tokens, logger, timeoutMs: config.sam.timeoutMs })
+        : undefined;
+      s = { accountId: creds.accountId, client, schema: new SchemaRegistry(client, logger), direct, userId: () => tokens.getUserId() };
       sessions.set(creds.accountId, s);
     }
     return s;
@@ -101,6 +106,7 @@ export function createApp(opts: AppOptions) {
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   registerOAuthRoutes(app, { config, signer, usedCodes, logger });
+  registerUploadRoutes(app, { signer, usedUploads: new UsedTokenRegistry(), samFor, logger });
 
   app.all("/mcp", async (c) => {
     const auth = await authenticateBearer(c.req.header("authorization"), config, signer);
@@ -123,6 +129,8 @@ export function createApp(opts: AppOptions) {
       sam: () => samFor(auth.principal),
       writeMode: config.writeMode,
       sendEmail: config.sam.sendEmail,
+      publicBaseUrl: publicBaseUrl(config, c),
+      directEnabled: Boolean(config.sam.supabaseAnonKey),
       signer,
       usedConfirmations,
       logger,

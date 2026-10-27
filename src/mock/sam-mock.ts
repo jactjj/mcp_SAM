@@ -19,14 +19,21 @@ const f = (name: string, type = "text", required = false): MockField => ({ name,
 const base = [f("id", "uuid"), f("created_at", "timestamptz"), f("updated_at", "timestamptz")];
 
 export const MOCK_SCHEMA: Record<string, MockField[]> = {
-  clients: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("ville"), f("statut"), f("commercial_id", "uuid")],
-  leads: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("source"), f("statut"), f("score", "integer")],
-  distributeurs: [...base, f("nom", "text", true), f("ville")],
-  commerciaux: [...base, f("nom", "text", true), f("prenom"), f("email"), f("user_id", "uuid"), f("is_active", "boolean")],
+  clients: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("ville"), f("statut"), f("commercial_id", "uuid"),
+    // Real SAM field names (observed 2026-10-26/27), used by the CRM actions.
+    f("societe"), f("siret"), f("adresse"), f("code_postal"), f("telephone_2"), f("commentaire"), f("distributeur_id", "uuid"), f("converted_from_lead_id", "uuid"),
+    f("is_lead_converti", "boolean"), f("accompagnement_carsat", "boolean"), f("next_reminder_at", "timestamptz"), f("statut_sam")],
+  leads: [...base, f("nom", "text", true), f("prenom"), f("email"), f("telephone"), f("entreprise"), f("source"), f("statut"), f("score", "integer"),
+    f("societe"), f("siret"), f("adresse"), f("code_postal"), f("ville"), f("telephone_2"), f("commentaire"), f("distributeur_id", "uuid"), f("commercial_id", "uuid"),
+    f("converted_to_client_id", "uuid"), f("converted_to_distributeur_id", "uuid"), f("converted_at", "timestamptz"), f("converted_by_user_id", "uuid")],
+  distributeurs: [...base, f("nom", "text", true), f("ville"), f("nom_distributeur"), f("dirigeant_societe"), f("email"), f("telephone"), f("siret"), f("adresse"),
+    f("code_postal"), f("commentaire"), f("statut"), f("is_active", "boolean")],
+  commerciaux: [...base, f("nom", "text", true), f("prenom"), f("email"), f("user_id", "uuid"), f("is_active", "boolean"), f("first_name"), f("last_name"), f("distributeur_id", "uuid")],
   taches: [...base, f("titre", "text", true), f("description"), f("statut"), f("echeance", "date"), f("client_id", "uuid"), f("lead_id", "uuid")],
   rdv: [...base, f("titre", "text", true), f("date_debut", "timestamptz", true), f("date_fin", "timestamptz"), f("lieu"), f("client_id", "uuid")],
   products: [...base, f("nom", "text", true), f("prix", "numeric"), f("reference")],
-  documents: [...base, f("nom", "text", true), f("url"), f("client_id", "uuid")],
+  documents: [...base, f("nom", "text", true), f("url"), f("client_id", "uuid"), f("type_document"), f("status"), f("file_url"), f("uploaded_by_user_id", "uuid"),
+    f("date_mise_a_jour", "timestamptz"), f("distributeur_id", "uuid"), f("remarks")],
   "client-products": [...base, f("client_id", "uuid", true), f("product_id", "uuid", true), f("quantite", "integer")],
   "client-comments": [...base, f("client_id", "uuid", true), f("contenu", "text", true)],
   "lead-comments": [...base, f("lead_id", "uuid", true), f("contenu", "text", true)],
@@ -79,7 +86,13 @@ export interface MockSam {
   failNext(pathPrefix: string, status: number, body?: unknown): void;
   issuedTokens: string[];
   /** Emails accepted by the simulated /send-email. */
-  sentEmails: { to: string; subject: string; html: string }[];
+  sentEmails: { to: string | string[]; subject: string; html: string; cc?: string[]; bcc?: string[]; attachments?: { filename: string; content: string }[] }[];
+  /** Tables reached like SAM's web app does (/rest/v1). */
+  tables: Map<string, Rec[]>;
+  /** Files in SAM storage (/storage/v1), by "bucket/path". */
+  storage: Map<string, { size: number; contentType: string }>;
+  /** Calls to SAM functions used by the web app (create-user-account…), passwords masked. */
+  functionCalls: { name: string; body: Rec }[];
 }
 
 function randomToken(): string {
@@ -116,6 +129,32 @@ export function createMockSam(opts: MockSamOptions = {}): MockSam {
     data,
     issuedTokens: [],
     sentEmails: [],
+    tables: new Map<string, Rec[]>([
+      [
+        "email_templates",
+        [
+          { id: "t-1", name: "Pré-demande CARSAT", category: "documents", target_type: "client", status: "actif", subject_template: "Pré-demande – {{client.societe}}", body_template: "Bonjour {{client.prenom}},\nVotre dossier avance.\n{{sam.arno_nom}}", signature: "L'équipe {{sam.company_name}}", default_cc: ["direction@sam.test"], default_bcc: [] },
+          { id: "t-2", name: "Relance distributeur", category: "relance", target_type: "client_et_distributeur", status: "actif", subject_template: "Relance {{client.nom}}", body_template: "<p>Bonjour {{client.prenom}}</p>", signature: null, default_cc: [], default_bcc: ["archive@sam.test"] },
+          { id: "t-3", name: "Ancien modèle", category: "autre", target_type: "client", status: "archive", subject_template: "Ancien", body_template: "x", default_cc: [] },
+          { id: "t-4", name: "Contrat généré", category: "devis", target_type: "client", status: "actif", subject_template: "Contrat {{client.nom}}", body_template: "Ci-joint", default_cc: [] },
+          { id: "t-5", name: "Variable manquante", category: "autre", target_type: "client", status: "actif", subject_template: "Dossier {{client.siret}}", body_template: "x", default_cc: [] },
+        ],
+      ],
+      [
+        "email_template_attachments",
+        [
+          { id: "a-1", email_template_id: "t-2", attachment_type: "static_pdf", file_url: "https://sam.test/storage/v1/object/public/email-attachments/guide.pdf", filename_override: "guide.pdf", display_order: 1 },
+          { id: "a-2", email_template_id: "t-4", attachment_type: "generated_pdf_template", document_template_id: "dt-1", display_order: 1 },
+        ],
+      ],
+      ["sam_contact_info", [{ id: "s-1", company_name: "SAM", team_members: [{ name: "Arno Test", email: "arno@sam.test", phone: "0100" }, { name: "Lenny Test", email: "lenny@sam.test", phone: "0200" }] }]],
+      ["client_comments", [{ id: "cc-1", client_id: "c-1", content: "Client satisfait.", created_at: new Date(0).toISOString() }]],
+      ["lead_comments", []],
+      ["notifications", []],
+      ["email_logs", []],
+    ]),
+    storage: new Map(),
+    functionCalls: [],
     expireAllTokens: () => tokens.clear(),
     failNext: (prefix, status, body) => failures.push({ prefix, status, body }),
     fetch: async (input, init) => {
@@ -124,7 +163,12 @@ export function createMockSam(opts: MockSamOptions = {}): MockSam {
       const path = url.pathname.replace(/^\/functions\/v1/, "");
       const method = req.method.toUpperCase();
       const text = method === "GET" || method === "HEAD" ? "" : await req.text();
-      const body: unknown = text ? JSON.parse(text) : undefined;
+      let body: unknown = undefined;
+      try {
+        body = text ? JSON.parse(text) : undefined;
+      } catch {
+        body = undefined; // binary upload
+      }
       const auth = req.headers.get("authorization") ?? "";
       const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
       const session = tokens.get(token);
@@ -170,9 +214,78 @@ export function createMockSam(opts: MockSamOptions = {}): MockSam {
         const missing = ["to", "subject", "html"].filter((k) => !b[k]);
         // Same message as the live API (observed 2026-10-26).
         if (missing.length) return json(400, { error: `Missing required fields: ${missing.join(", ")}` });
-        mock.sentEmails.push({ to: String(b.to), subject: String(b.subject), html: String(b.html) });
+        mock.sentEmails.push({
+          to: Array.isArray(b.to) ? (b.to as string[]) : String(b.to),
+          subject: String(b.subject),
+          html: String(b.html),
+          ...(b.cc ? { cc: b.cc as string[] } : {}),
+          ...(b.bcc ? { bcc: b.bcc as string[] } : {}),
+          ...(b.attachments ? { attachments: b.attachments as { filename: string; content: string }[] } : {}),
+        });
+        return json(200, { id: `msg-${mock.sentEmails.length}` });
+      }
+      // --- Channels used by SAM's web app (read in its code on 2026-10-27) ---
+      if (path.startsWith("/storage/v1/object/public/email-attachments/") && method === "GET") {
+        return new Response("%PDF-1.4 mock", { status: 200, headers: { "Content-Type": "application/pdf" } });
+      }
+      if (path.startsWith("/rest/v1/") || path.startsWith("/storage/v1/") || path === "/create-user-account" || path === "/send-access-credentials-commercial") {
+        if (!req.headers.get("apikey")) return json(401, { message: "No API key found in request" });
+        if (!authorized) return json(401, { message: "JWT expired" });
+      }
+      if (path.startsWith("/rest/v1/")) {
+        const table = path.slice("/rest/v1/".length);
+        const rows = mock.tables.get(table);
+        if (!rows) return json(404, { message: `relation "public.${table}" does not exist` });
+        if (method === "POST") {
+          const row = { id: `${table}-${rows.length + 1}`, created_at: new Date(now()).toISOString(), ...(body as Rec) };
+          rows.push(row);
+          return json(201, [row]);
+        }
+        let out = [...rows];
+        for (const [k, raw] of url.searchParams) {
+          if (["select", "order", "limit", "offset"].includes(k)) continue;
+          const [op, ...rest] = raw.split(".");
+          const v = rest.join(".");
+          out = out.filter((r) => {
+            const x = r[k];
+            if (op === "eq") return String(x) === v;
+            if (op === "neq") return String(x) !== v;
+            if (op === "is") return x === null || x === undefined;
+            if (op === "ilike") return String(x ?? "").toLowerCase().includes(v.replace(/\*/g, "").toLowerCase());
+            if (op === "gte") return String(x) >= v;
+            if (op === "lte") return String(x) <= v;
+            return true;
+          });
+        }
+        const off = Number(url.searchParams.get("offset") ?? 0);
+        const lim = Number(url.searchParams.get("limit") ?? 1000);
+        return json(200, out.slice(off, off + lim));
+      }
+      if (path.startsWith("/storage/v1/object/sign/") && method === "POST") {
+        const key = path.slice("/storage/v1/object/sign/".length);
+        if (!mock.storage.has(key)) return json(404, { message: "Object not found" });
+        return json(200, { signedURL: `/object/sign/${key}?token=mock-signed` });
+      }
+      if (path.startsWith("/storage/v1/object/") && method === "POST") {
+        const key = path.slice("/storage/v1/object/".length);
+        if (mock.storage.has(key)) return json(409, { message: "The resource already exists" });
+        mock.storage.set(key, { size: text.length, contentType: req.headers.get("content-type") ?? "" });
+        return json(200, { Key: key });
+      }
+      if (path === "/create-user-account" && method === "POST") {
+        const b = (body ?? {}) as Rec;
+        mock.functionCalls.push({ name: "create-user-account", body: { ...b, password: b.password ? "***" : undefined } });
+        if (!b.email || !b.password || !b.role || !b.entityId) return json(200, { error: "Missing fields" });
+        const c = data.get("commerciaux")?.find((x) => x.id === b.entityId);
+        if (c) c.user_id = `auth-${mock.functionCalls.length}`;
         return json(200, { success: true });
       }
+      if (path === "/send-access-credentials-commercial" && method === "POST") {
+        const b = (body ?? {}) as Rec;
+        mock.functionCalls.push({ name: "send-access-credentials-commercial", body: { ...b, password: b.password ? "***" : undefined } });
+        return json(200, { success: true });
+      }
+
       if (!path.startsWith("/crm-api")) return json(404, { error: "Not found" });
       if (!token) return json(401, { error: "Non autorisé - Token manquant" });
       if (!authorized) return json(401, { error: "Token invalide ou expiré" });

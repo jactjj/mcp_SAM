@@ -5,7 +5,7 @@ import { SignJWT, jwtVerify, type JWTPayload } from "jose";
  * so a token issued for one purpose (e.g. an OAuth client id) can never be replayed as
  * another (e.g. an access token).
  */
-export type TokenPurpose = "client" | "authreq" | "code" | "access" | "refresh" | "confirm";
+export type TokenPurpose = "client" | "authreq" | "code" | "access" | "refresh" | "confirm" | "upload";
 
 const encoder = new TextEncoder();
 

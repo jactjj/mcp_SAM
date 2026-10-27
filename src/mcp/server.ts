@@ -22,6 +22,15 @@ function instructions(ctx: ToolContext): string {
     writes,
     "Suppression : delete_record pour une fiche.",
     "Plusieurs fiches à créer, modifier ou supprimer : utilise batch_write (jusqu'à 50 opérations en un seul appel) plutôt qu'un appel par fiche.",
+    "Actions du CRM : convert_lead pour convertir un prospect en client ou distributeur (comme le bouton du CRM) ; set_reminder pour la date de relance d'un client ; " +
+      "la pré-demande CARSAT est le statut statut_sam = pre_demande d'un client (update_client) : SAM refuse si des documents bloquants manquent, explique alors lesquels.",
+    ...(ctx.directEnabled
+      ? [
+          "Emails types du CRM : list_email_templates, puis preview_template_email (aperçu) et send_template_email (envoi avec copies du modèle, commercial en copie si demandé, inscription dans l'historique de la fiche).",
+          "Fichiers : pour ranger une pièce (ex. pièce jointe Gmail : attestation URSSAF, DUERP, facture) dans le dossier d'un client, utilise create_upload_link et donne le lien à l'utilisateur, qui y dépose le fichier.",
+          "Comptes : create_commercial_account crée l'accès CRM d'un commercial et lui envoie ses identifiants ; toujours après accord explicite de l'utilisateur.",
+        ]
+      : []),
     ctx.sendEmail && ctx.writeMode !== "disabled"
       ? "Emails : send_email envoie depuis l'expéditeur du CRM SAM (HTML) ; pour un brouillon à relire, utiliser Gmail."
       : "L'envoi d'emails par SAM n'est pas activé sur ce connecteur : utiliser Gmail.",

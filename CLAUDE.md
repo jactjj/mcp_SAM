@@ -74,7 +74,7 @@ npm run secret:generate  # génère une valeur aléatoire pour un secret
 - Respecter le découpage existant (sam/ = accès API, mcp/ = outils, oauth/ = accès au serveur). Ajouter un outil = ajouter une entrée dans le catalogue de `tools.ts`.
 - TypeScript strict, imports ESM avec extension `.js`. `npm run check` doit passer.
 - Valider toutes les entrées avec Zod (bornes, regex champ/id) puis contre le schéma SAM.
-- Ne jamais inventer de champ SAM ni coder en dur un nom de champ métier ; se fonder sur `/crm-api/schema` (le mock est fictif).
+- Ne jamais inventer de champ SAM ; se fonder sur les champs réels (observés ou lus dans le code du site SAM pour `actions.ts`). Le mock est fictif, sauf les champs réels ajoutés pour les actions.
 - Ne jamais journaliser de secret, de jeton, de corps de requête ni de terme de recherche ; passer par `logger`.
 - Suppression : uniquement via `delete_record` (suit `SAM_WRITE_MODE` ; relit toujours la fiche avant). Pas d'envoi d'email ni d'outil HTTP générique sans décision explicite de l'utilisateur.
 - Garder des descriptions d'outils claires, en français, avec annotations `readOnlyHint` / `destructiveHint` exactes.
@@ -92,7 +92,7 @@ Variables (valeurs : voir `.env.example`, jamais ici) : `SAM_API_BASE_URL`, `SAM
 ## F. État du projet (2026-10-26)
 
 Testé :
-- 120 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
+- 135 tests automatisés verts (API simulée au format réel), typecheck strict OK, bundle Workers OK.
 - **Écritures sur la vraie API (2026-10-26, accord de l'utilisateur)**, via le serveur MCP en mode `confirm` : create/update_lead (Arno), create/update_task (Lenny) OK ; aperçu sans écriture, confirmation modifiée / rejouée / d'un autre compte refusée, `deleted_at` et champ inventé refusés ; aperçus OK pour create/update_client et create/update_appointment ; add_client_comment refusé (champs inconnus).
 - **Bout en bout sur la vraie API SAM, en lecture seule, pour les 2 comptes** (`npm run e2e`) : auth SAM, 17 outils de lecture, recherche, filtres, fiches, pagination (`{data, pagination: {total, limit, offset, has_more}}`), refus sans jeton / faux jeton, une seule connexion SAM par compte, aucun secret/email/JWT dans les logs.
 
@@ -109,7 +109,7 @@ Non fait / à faire :
 - Outils ajoutés le 2026-10-26 à la demande de l'utilisateur (« le connecteur doit pouvoir agir ») : commerciaux (`user_id` bloqué), distributeurs, produits, documents, produits client, modification des commentaires et notifications, `delete_record`. `delete_record` validé sur la vraie API (suppression de la tâche de test, rejeu et jeton détourné refusés) ; les autres nouveaux outils sont testés en aperçu seulement. Entité sans champ connu : écriture permise avec avertissement, SAM valide les colonnes.
 - Emails : `prepare_email` (lecture) rassemble fiche, commercial, distributeur, tâches, rendez-vous et propose les recherches Gmail ; les instructions serveur décrivent la méthode SAM + Gmail (historique du contact, email du même type déjà envoyé, brouillon par défaut, mise à jour SAM). Le serveur n'accède pas à Gmail : Claude combine les connecteurs.
 - `batch_write` (2026-10-27, retour client « validation par lot ») : ≤ 50 opérations create/update/delete, validation complète avant toute écriture (mêmes règles que les outils unitaires : entités créables, `blockedFields`, champs gérés par SAM), exécution séquentielle sans retour arrière, un seul jeton en mode `confirm`.
-- Retours client en attente : dépôt de fichiers (convention observée : bucket Storage `documents/<client_id>/<type_document>_<horodatage>.<ext>`, lien signé 365 j dans `file_url`, statut `en_revision`, accès Storage OK avec le JWT utilisateur ; reste à obtenir le fichier côté Gmail, option recommandée : OAuth Google côté serveur) ; boutons CRM (pré-demande, relances, conversion) à identifier dans le code public de l'application web SAM (URL à fournir).
+- **Fonctions du site SAM** (2026-10-27, accord de SAM, logique lue dans le code public de https://sam.classicall.fr) : `src/sam/direct.ts` (listes fermées de tables, bucket, fonctions ; JWT utilisateur + `SAM_SUPABASE_ANON_KEY`), `src/mcp/actions.ts` (convert_lead, set_reminder, list/preview/send_template_email, create_upload_link, create_commercial_account), `src/mcp/templates.ts` (variables `{{groupe.champ}}`, signature, copies), `src/upload/routes.ts` (page `/upload/:token`). Pré-demande = `statut_sam = pre_demande` (SAM vérifie les documents bloquants). Relance = `next_reminder_at` à 9 h Paris. Pas d'app Google (refusée) : dépôt par lien. Lecture des commentaires/notifications en direct si `/crm-api` renvoie l'erreur `deleted_at`. Testé en lecture sur la prod (10 modèles réels, aperçu sur un vrai client, commentaires lus).
 - **Comptes utilisateurs SAM : impossible pour l'instant**, aucun endpoint documenté (les 12 entités n'incluent pas les utilisateurs). Nécessite un endpoint fourni par le développeur SAM ; ne pas en inventer.
 
 Limitations : champs obligatoires inconnus (SAM les vérifie à la création) ; types déduits des valeurs observées ; usage unique des codes/confirmations et verrouillage du mot de passe en mémoire par instance ; refresh tokens révocables globalement ou en retirant le compte ; mode sans état (pas d'élicitation MCP).

@@ -5,7 +5,7 @@
  *   npx wrangler login      (once)
  *   npm run secrets:push
  *
- * Only secrets are sent (MCP_AUTH_SECRET and SAM_ACCOUNT_<N>_*). Non-secret settings
+ * Only secrets are sent (MCP_AUTH_SECRET, SAM_SUPABASE_ANON_KEY and SAM_ACCOUNT_<N>_*). Non-secret settings
  * (SAM_WRITE_MODE, SAM_API_BASE_URL, MCP_PUBLIC_URL…) live in wrangler.toml [vars].
  */
 import { spawnSync } from "node:child_process";
@@ -29,7 +29,7 @@ try {
 const secrets: Record<string, string> = {};
 for (const [k, v] of Object.entries(process.env)) {
   if (!v) continue;
-  if (k === "MCP_AUTH_SECRET" || /^SAM_ACCOUNT_\d+_(LABEL|EMAIL|PASSWORD|CONNECTOR_PASSWORD|STATIC_TOKEN)$/.test(k)) secrets[k] = v;
+  if (k === "MCP_AUTH_SECRET" || k === "SAM_SUPABASE_ANON_KEY" || /^SAM_ACCOUNT_\d+_(LABEL|EMAIL|PASSWORD|CONNECTOR_PASSWORD|STATIC_TOKEN)$/.test(k)) secrets[k] = v;
 }
 console.log(`Envoi de ${Object.keys(secrets).length} secrets vers Cloudflare : ${Object.keys(secrets).sort().join(", ")}`);
 
